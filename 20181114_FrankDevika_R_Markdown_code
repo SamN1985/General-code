@@ -1,0 +1,910 @@
+---
+title: "Transcriptomic drug-response: pilot 2"
+author: "Frank Wessely"
+output:
+  html_document:
+    code_folding: hide
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+------------------------------------
+
+# Summary
+
+* cell line: ES-derived NPCs
+* lab: Uni Oxford (Zam Cader lab)
+
+-------------
+
+* 112 samples in total
+
+* 12 compounds, each tested with 3 concentrations (low, medium, high)
+* note, that these 3 categories can mean different concentrations for different drugs
+* tested on 3 differentiations = replicates
+* 9 samples for each compound = 108 samples
+
+* 2 DMSO control samples per differentiation = 6 samples
+* fixed DMSO concentration: 0.001
+
+**2 samples not sequenced due to low RNA quality:**
+
+1. Tunicamycin High
+2. Vorinostat High
+
+----------------
+
+* RNA sequencing performed by Boehringer Ingelheim
+
+* Illumina HiSeq3000
+* 85bp, single-end
+* Illumina stranded mRNA Protocol (RS-122-2102, TruSeq Stranded mRNA LT - Set B), which includes a Poly A isolation with Oligo dT beads
+* Werner Rust (BI) started with 220ng total RNA using 14 PCR-cycles for the libraryprep - amplification
+
+* Salmon library type: SR - stranded single-end protocol, where reads come from the reverse strand (TopHat: -fr-firststrand)
+
+----------------
+
+* table columns can be masked with the 'Column Visibility' button
+
+* Copy, CSV and Excel buttons allow to download the visible data from the tables
+* search can be used to select specific rows (only those will be exported)
+
+* note that the Copy button (copy table to clipboard as tab-separated data) might not work for the largest tables with thousands of rows
+
+----------------
+
+```{r setup, include=FALSE}
+
+library(plyr) # join command, does not change original row order
+library(knitr)
+library(data.table)
+library(scater)
+library(tximport) # here only needed to get and report effective gene lengths
+library(readr) # used by tximport for faster import
+library(VennDiagram)
+library(ggrepel)
+library(DT)
+library(DESeq2)
+library(vsn)
+library(BiocParallel)
+
+knitr::opts_chunk$set(cache=TRUE,echo=FALSE,message=FALSE,warning=FALSE)
+
+futile.logger::flog.threshold(futile.logger::ERROR, name = "VennDiagramLogger")
+
+## white background theme for all plots
+theme_set(theme_bw())
+
+```
+
+
+```{r files, include=FALSE}
+
+## Salmon using human ensembl v87 reference
+quant_dir <- "/net/isi-project/CW026_WESSELY_MULTIDRUG/Analysis/Salmon_072_lib_A_pilot_2_noalt"
+
+# Salmon or Kallisto for abundance data
+# in_type <- "Kallisto"
+in_type <- "Salmon"
+
+# samples metadata
+samples_file <- "/net/isi-project/CW026_WESSELY_MULTIDRUG/Analysis/samples_multi_drugs_pilot_2.txt"
+
+# transcript to gene mapping
+# generated from headers of fasta file used as transcriptome reference
+# contains version numbers for ensembl transcript and gene IDs
+ens_annot_file <- "/net/isi-project/CW026_WESSELY_MULTIDRUG/data/Reference/Ensembl/ensembl_hs_GRCh38_v87_cdna_ncrna_noalt_gene_map.txt"
+
+## DESeq2 settings
+
+pre_filter_type <- "counts"
+# pre_filter_type <- "fpkm"
+
+# minimum expression of a gene - pre-filtering step
+# if counts are used: a rowsum-threshold 
+# expression_cutoff <- 0 # at least one sample has to have an estimated count of 1
+expression_cutoff <- 1 # at least 2 counts across all samples, i.e. remove genes with only 0 or 1 read across all samples
+# expression_cutoff <- -1 # no filtering
+# if fpkms are used: each gene has at least 1 sample with FPKM > expression_cutoff
+
+# adjusted alpha value
+alpha_cutoff <- 0.05
+
+# how many genes with lowest adjusted pvalue to print
+top_genes <- 10
+
+
+## make use of multiple cores
+register(MulticoreParam(32))
+
+```
+
+
+```{r print_setting}
+
+cat("Quantification data from: ", in_type, fill=T)
+
+```
+
+
+```{r functions, include=F}
+
+ensembl_url <- "<a href=\"http://www.ensembl.org/Homo_sapiens/Gene/Summary?g="
+
+## create hyperlinks in tables printed with the DT package
+set_hyperlinks <- function(DT, col_names, url_strings) {
+  DT_out <- copy(DT)  
+  for (i in 1:length(col_names)){
+    DT_out[(col_names[i]) != '', (col_names[i]) := paste0(url_strings[i], get(col_names[i]),"\">", get(col_names[i]),"</a>")]
+  }
+  DT_out
+}
+
+## re-format DESeq2 results table
+print_DESeq_table <- function(A, alpha_level = 0.05, t2g_info = t2g_genes, merge_column = "target_id"){
+  
+  A_2 <- as.data.table(A)
+  A_2 <- A_2[, target_id := rownames(A)]
+  A_2 <- A_2[order(pvalue)]
+  A_2 <- A_2[log2FoldChange < 0, fc := "down"]
+  A_2[log2FoldChange < 0 & !is.na(padj), rank := 1:sum(log2FoldChange < 0)]
+  A_2 <- A_2[log2FoldChange > 0, fc := "up"]
+  A_2[log2FoldChange > 0 & !is.na(padj), rank := 1:sum(log2FoldChange > 0)]
+  
+  A_2 <- A_2[padj < alpha_level, ]
+  
+  A_2[, c("lfcSE", "stat") := NULL]
+  
+  C <- merge(A_2, t2g_info[, .(target_id, ens_gene, gene_type, ext_gene, desc)], by.x="target_id", by.y=merge_column, all.x=T)
+  ### C <- C[, target_id := NULL] ## keep for now, for look-up
+  
+  setcolorder(C, c("target_id", "ext_gene", "ens_gene", "log2FoldChange", "lfcMLE", "pvalue", "padj", "fc", "rank", "baseMean", "gene_type", "desc"))
+  
+  C[, c("log2FoldChange","lfcMLE","pvalue","padj") := list(signif(log2FoldChange, 3), signif(lfcMLE, 3), signif(pvalue, 3), signif(padj, 3))]
+  C[, baseMean := round(baseMean, digits=1)]
+  setnames(C, c("log2FoldChange"), c("log2FC"))
+  C[order(pvalue)]
+}
+
+
+## create table to combine results from 3 concentrations
+print_DESeq_union_table <- function(L, M, H, alpha_level = 0.05, t2g_info = t2g_genes, merge_column = "target_id"){
+  
+  setnames(L, c("target_id", paste0(colnames(L)[-1], "_L")))
+  setnames(M, c("target_id", paste0(colnames(M)[-1], "_M")))
+  setnames(H, c("target_id", paste0(colnames(H)[-1], "_H")))
+  
+  C <- merge(L[, .(target_id, log2FoldChange_L, padj_L)], M[, .(target_id, log2FoldChange_M, padj_M)], by="target_id")
+  C <- merge(C, H[, .(target_id, log2FoldChange_H, padj_H)], by="target_id")
+  
+  C <- C[log2FoldChange_L < 0, fc_L := "down"]
+  C <- C[log2FoldChange_L > 0, fc_L := "up"]
+  C <- C[log2FoldChange_M < 0, fc_M := "down"]
+  C <- C[log2FoldChange_M > 0, fc_M := "up"]
+  C <- C[log2FoldChange_H < 0, fc_H := "down"]
+  C <- C[log2FoldChange_H > 0, fc_H := "up"]
+  
+  C <- C[, sig_num := sum(padj_L < alpha_cutoff, padj_M < alpha_cutoff, padj_H < alpha_cutoff, na.rm = T), by="target_id"]
+  C <- C[padj_L < alpha_cutoff, L := "L"]
+  C <- C[padj_M < alpha_cutoff, M := "M"]
+  C <- C[padj_H < alpha_cutoff, H := "H"]
+  
+  C <- merge(C, t2g_info[, .(target_id, ens_gene, ext_gene, desc)], by.x="target_id", by.y=merge_column, all.x=T)
+  C <- C[, target_id := NULL]
+  
+  setcolorder(C, c("ext_gene", "ens_gene", "sig_num", c("L","M","H"), paste0("fc_", c("L","M","H")), paste0("log2FoldChange_", c("L","M","H")), paste0("padj_", c("L","M","H")), "desc"))
+  
+  C[, c(paste0("log2FoldChange_", c("L","M","H")), paste0("padj_", c("L","M","H"))) := list(signif(log2FoldChange_L, 3), signif(log2FoldChange_M, 3), signif(log2FoldChange_H, 3), signif(padj_L, 3), signif(padj_M, 3), signif(padj_H, 3))]
+  
+  setnames(C, paste0("log2FoldChange_", c("L","M","H")), paste0("l2fc_", c("L","M","H")))
+  C[order(-sig_num)]
+}
+
+
+## print top DEGs
+# get data from DESeq2 plotCounts function
+# counts data is normalized 
+# from `DESeq2::counts`: normalized: logical indicating whether or not to divide the counts by the size factors or normalization factors before returning (normalization factors always preempt size factors)
+my_plot_counts <- function(obj, plot_genes=NULL, intgroup_vec=c("Replicate", "Concentration2", "Compound_name"), t2g_info=NULL, n_ncol=4){
+
+  # collect data for each gene
+  plot_data_all <- as.data.table(plotCounts(obj, gene = plot_genes[1], intgroup_vec, returnData=TRUE))
+  plot_data_all[, gene := plot_genes[1]]
+  plot_data_all[, gene_idx := formatC(1,width=2,flag='0')]
+  
+  if (length(plot_genes) >= 2){
+    for (i in 2:length(plot_genes)){
+      
+      plot_data <- as.data.table(plotCounts(obj, gene = plot_genes[i], intgroup_vec, returnData=TRUE))
+      plot_data[, gene := plot_genes[i]]
+      plot_data[, gene_idx := formatC(i,width=2,flag='0')]
+      plot_data_all <- rbind(plot_data_all, plot_data)
+    }
+  }
+  
+  plot_data_all <- merge(plot_data_all, t2g_info[, .(target_id, ext_gene)], by.x="gene", by.y="target_id")
+  # plot_data_all[, gene_print := paste0(gene_idx, "  ", gene, "  ", ext_gene)]
+  # plot_data_all[, gene_print := paste0(gene_idx, "  ", gene)]
+  plot_data_all[, gene_print := paste0(gene_idx, "  ", ext_gene)] ## use only gene symbol as facet title
+  
+  p <- ggplot(data = plot_data_all, aes(x=Compound_name, y=log2(count+1), colour=Replicate))
+  p <- p + geom_violin(aes(group=Compound_name), alpha = 0, colour = "gray60", scale="width")
+  ## p <- p + ggbeeswarm::geom_quasirandom(alpha = 0.6, size = 3, groupOnX = TRUE)
+  p <- p + geom_point(position = position_jitterdodge(), size=3, alpha=0.6)
+  p <- p + xlab(NULL)
+  p <- p + facet_wrap(~gene_print, ncol=n_ncol, scales="free_y")
+  p <- p + guides(colour = guide_legend(override.aes = list(alpha=1)))
+  p <- p + ylab("log2(normalised count + 1)") + theme(legend.position="top")
+  p <- p + theme(axis.text.x=element_text(angle=90, hjust=1))
+  
+  p
+}
+
+```
+
+
+```{r setup_annotation, include=FALSE}
+
+t2g <- fread(ens_annot_file, header=F)
+setnames(t2g, c("target_id", "seqtype", "location", "ens_gene", "gene_type", "tx_type", "ext_gene", "desc"))
+
+# remove version number from ensembl gene IDs
+t2g <- t2g[, ens_gene := gsub('\\..*', '', ens_gene, perl=T)]
+
+# combine external gene symbol with ensembl ID
+t2g <- t2g[, gene := paste0(ext_gene, ' - ', ens_gene)]
+
+###############################################
+## consider only protein coding genes
+t2g <- t2g[gene_type == "protein_coding", ]
+###############################################
+
+# unique ensembl gene IDs
+t2g_genes <- unique(t2g, by="ens_gene")
+# setnames(t2g_genes, c("target_id", "ens_gene"), c("tx_id", "target_id")) # ensembl ID as target_id
+setnames(t2g_genes, c("target_id", "gene"), c("tx_id", "target_id")) # gene symbol + esnembl ID as new target_id
+
+```
+
+
+```{r setup_samples}
+
+samples_meta <- fread(samples_file)
+
+## create new group factor: drug + DOSE into one factor
+samples_meta <- samples_meta[, group := factor(paste(Compound_name, Concentration2, sep="."))]
+
+samples_meta <- samples_meta[, Concentration2 := factor(Concentration2, levels=c("DMSO", "Low", "Medium", "High"))]
+samples_meta <- samples_meta[, Replicate := factor(Replicate)]
+# reference level is "DMSO control"
+samples_meta <- samples_meta[, Compound_name := factor(Compound_name, levels=c("DMSO control", "17-AAG","A-366","A-971432","Bardoxolone","compound 81","Lithium chloride","Rapamycin","Rosiglitazone","Taxol","ThiametG","Tunicamycin","Vorinostat"))]
+
+## set reference level
+samples_meta <- samples_meta[, group := relevel(group, ref="DMSO control.DMSO")]
+
+quant_dirs <- list.dirs(quant_dir, full.names = TRUE, recursive = FALSE)
+quant_dirs_short <- list.dirs(quant_dir, full.names = FALSE, recursive = FALSE)
+quant_dirs_table <- data.table(Sample=quant_dirs_short, path=quant_dirs)
+
+samples_meta <- plyr::join(samples_meta, quant_dirs_table, by="Sample")
+
+samples_meta_DF <- as.data.frame(samples_meta)
+rownames(samples_meta_DF) <- samples_meta_DF$Sample
+
+```
+
+-------------------------------
+
+# Samples
+
+---------------------------------
+
+```{r samples_overview, cache=F}
+
+samples_meta_print <- copy(samples_meta)
+samples_meta_print <- samples_meta_print[, .(Sample_ID, Cell_line_code, Target_short, Compound_name, Concentration, RQN)]
+
+samples_meta_print %>% DT::datatable(caption="Pilot 1 study samples overview", escape=F)
+
+```
+
+
+-------------------------------
+
+# Import expression data 
+
+* use `tximport` package
+
+
+```{r test_t2g}
+
+cat("Unique ensembl genes provided in transcript to gene mapping file: ", length(unique(t2g[, ens_gene])), fill=T)
+
+```
+
+
+```{r scater_setup_1, include=F}
+
+# if (in_type == "Kallisto"){
+#   sce <- readKallistoResults(directories = samples_meta[, path], samples = samples_meta[, Sample], verbose=FALSE)
+# } else if (in_type == "Salmon"){
+#   sce <- readSalmonResults(directories = samples_meta[, path], samples = samples_meta[, Sample], verbose=FALSE)
+# } else {
+#   stop("Input must be either from Salmon or Kallisto!")
+# }
+
+```
+
+
+```{r tximport, include=F}
+
+if (in_type == "Kallisto"){
+  files_tximport <- paste0(samples_meta[, path], "/", "abundance.tsv")
+} else {
+  files_tximport <- paste0(samples_meta[, path], "/", "quant.sf")
+}
+
+names(files_tximport) <- samples_meta[, Sample]
+## txi <- tximport(files_tximport, type = tolower(in_type), tx2gene = t2g[, .(target_id, ens_gene)], reader = read_tsv)
+txi <- tximport(files_tximport, type = tolower(in_type), tx2gene = t2g[, .(target_id, gene)], reader = read_tsv) ## use combined symbols and ensembl ID
+
+```
+
+
+```{r deseq_setup}
+
+## if only protein coding genes are used:
+## "transcripts missing genes: 56393"
+
+stopifnot(all.equal(colnames(txi$counts), rownames(samples_meta_DF)))
+
+dds <- DESeqDataSetFromTximport(txi, samples_meta_DF, design=~1)
+# using counts and average transcript lengths from tximport
+# dds is now ready for DESeq() see DESeq2 vignette
+# stores the rounded integers from txi$counts and tx lengths
+# 2 assays: counts and avgTxLength
+# NOTE: if tximport was run with countsFromAbundance as "scaledTPM" or "lengthScaledTPM", then only the counts are imported
+
+cat("Assay names of DESeq dataset: ", assayNames(dds), fill=T)
+cat("Number of genes and samples: ", dim(dds), fill=T)
+cat("Number of genes with no read (estimated count) in any sample: ", sum(rowSums(counts(dds)) == 0), fill=T)
+cat("Number of genes with exactly a count of 1 in a single sample (genes with row sum of 1): ", sum(rowSums(counts(dds)) == 1), fill=T)
+
+## pre-filtering for low expression
+cat("Expression threshold for exclusion of genes: ", expression_cutoff, fill=T)
+
+if (pre_filter_type == "counts"){
+  cat("Number of genes excluded: ", sum(rowSums(counts(dds)) <= expression_cutoff), fill=T)
+  dds <- dds[rowSums(counts(dds)) > expression_cutoff, ]
+} else if (pre_filter_type == "fpkm"){
+  # Robust normalization is not used if average transcript lengths are present, which is the case here!
+  # hence, raw counts are used here, and this is the basic calculation performed in fpm function:
+  ## k <- counts(dds)
+  ## library.sizes <- colSums(k)
+  ## fpm_my <- 1e+06 * sweep(k, 2, library.sizes, "/")
+  ## all.equal(fpm_test, fpm_my) # TRUE
+  fpkm_robust <- DESeq2::fpkm(dds)
+  cat("Number of genes excluded: ", rowSums(fpkm_robust > expression_cutoff) < 1, fill=T)
+  dds <- dds[rowSums(fpkm_robust > expression_cutoff) >= 1, ]
+} else { stop("Unknown pre-filter type!")}
+
+
+cat("Number of genes and samples after filtering: ", dim(dds), fill=T)
+
+
+
+```
+
+
+```{r design_setup}
+
+# calculate here so that normalized counts can be obtained
+design(dds) <- formula(~1)
+
+```
+
+
+```{r rlog_transform}
+
+## slow
+## rld <- rlogTransformation(dds, blind=TRUE)
+
+```
+
+
+```{r VST_transform}
+
+vsd <- varianceStabilizingTransformation(dds, blind=TRUE)
+
+```
+
+
+```{r VST_fast_transform}
+
+vsd_fast <- vst(dds, blind=TRUE)
+
+```
+
+----------------------------
+
+# Data transformation
+
+* plot the standard deviation (sd) of the transformed data, across samples, against the rank of the mean
+
+
+```{r test_data_transformation}
+
+## from DESeq2 user guide:
+# notAllZero <- (rowSums(counts(dds))>0)
+# meanSdPlot(log2(counts(dds,normalized=TRUE)[notAllZero,] + 1))
+# meanSdPlot(assay(rld[notAllZero,]))
+# meanSdPlot(assay(vsd[notAllZero,]))
+
+cat("log2(count+1) transformation: ", fill=T)
+meanSdPlot(log2(counts(dds,normalized=FALSE) + 1))
+
+cat("VST fast:", fill=T)
+meanSdPlot(assay(vsd_fast))
+
+cat("VST:", fill=T)
+meanSdPlot(assay(vsd))
+
+```
+
+
+
+
+------------------------------
+
+# PCA
+
+--------------------------------
+
+## PCA VST
+
+```{r PCA_VST}
+
+plot_data <- DESeq2::plotPCA(vsd, intgroup =c("Replicate", "Concentration2", "Compound_name"), returnData = T)
+percent_var <- round(100 * attr(plot_data, "percentVar"), 1)
+
+cat("top 500 most variable genes:")
+p <- ggplot(data = plot_data, aes(x=PC1, y=PC2, color=Replicate, shape=Concentration2)) ## size = ?
+p <- p + geom_point(alpha = 0.6, size=3)
+p <- p + xlab(paste0("PC1 (", percent_var[1], "%)"))
+p <- p + ylab(paste0("PC2 (", percent_var[2], "%)"))
+p <- p + guides(colour = guide_legend(override.aes = list(alpha=1)))
+p
+
+cat("top 1000 most variable genes:")
+plot_data <- DESeq2::plotPCA(vsd, intgroup =c("Replicate", "Concentration2", "Compound_name"), returnData = T, ntop = 1000)
+percent_var <- round(100 * attr(plot_data, "percentVar"), 1)
+
+p <- ggplot(data = plot_data, aes(x=PC1, y=PC2, color=Replicate, shape=Concentration2))
+p <- p + geom_point(alpha = 0.6, size=3)
+p <- p + xlab(paste0("PC1 (", percent_var[1], "%)"))
+p <- p + ylab(paste0("PC2 (", percent_var[2], "%)"))
+p <- p + guides(colour = guide_legend(override.aes = list(alpha=1)))
+p
+
+
+cat("all genes: ", dim(dds)[1])
+plot_data <- DESeq2::plotPCA(vsd, intgroup =c("Replicate", "Concentration2", "Compound_name"), returnData = T, ntop = dim(dds)[1])
+percent_var <- round(100 * attr(plot_data, "percentVar"), 1)
+
+p <- ggplot(data = plot_data, aes(x=PC1, y=PC2, color=Replicate, shape=Concentration2))
+p <- p + geom_point(alpha = 0.6, size=3)
+p <- p + xlab(paste0("PC1 (", percent_var[1], "%)"))
+p <- p + ylab(paste0("PC2 (", percent_var[2], "%)"))
+p <- p + guides(colour = guide_legend(override.aes = list(alpha=1)))
+p
+
+
+cat("all genes: ", dim(dds)[1])
+plot_data <- DESeq2::plotPCA(vsd, intgroup =c("Replicate", "Concentration2", "Compound_name"), returnData = T, ntop = dim(dds)[1])
+percent_var <- round(100 * attr(plot_data, "percentVar"), 1)
+
+p <- ggplot(data = plot_data, aes(x=PC1, y=PC2, color=Concentration2))
+p <- p + geom_point(alpha = 0.6, size=3)
+p <- p + xlab(paste0("PC1 (", percent_var[1], "%)"))
+p <- p + ylab(paste0("PC2 (", percent_var[2], "%)"))
+p <- p + guides(colour = guide_legend(override.aes = list(alpha=1)))
+p
+
+```
+
+
+```{r DEG_run}
+
+# condition samples are balanced across experimental batches/replicates
+# group combines: compound and DOSE
+design(dds) <- formula(~  Replicate + group)
+
+register(MulticoreParam(32))
+dds <- DESeq(dds, parallel = TRUE)
+
+```
+
+-----------------------------
+
+# Differential expression
+
+* the following sections represent the results of comparing compound treatments at a specific dose with DMSO control treatments
+* i.e. comparisons are between 3 compound treatments and 6 DMSO control samples
+
+--------------------
+
+**MA plots**  
+
+* scatter plot of log2 fold changes (M, y-axis) versus the average (A) of normalized counts (x-axis)
+* red symbols indicate differentially expressed genes given the chosen significance level for thresholding adjusted p-values
+
+--------------------
+
+**DEG tables**  
+
+* "fc" = fold change in terms of up- or down-regulation in compound-treated samples
+* "rank" refers to the rank based on ordering genes by (unadjusted) pvalue column for up- and down-regulated genes independently
+* "lfcME" refers the "unshrunken" maximum likelihood estimates (MLE) of log2 fold change
+* this might be useful to see whether there is "overshrinking" of fold changes
+
+-------------------
+
+**Combined DEG tables**  
+
+* the subsection 'Combined' contains an overview of overlapping DEGs between the 3 doses
+* there is also a table that contains the union set of DEGs from the 3 doses
+* L, M, H indicates low, medium and high dose
+* the columns L, H and M themselves indicate whether the gene was found as significant at a specific dose
+* "sign_num" refers to the number of doses for which that that gene was found as a significant DEG
+
+
+----------------------------
+
+
+```{r drug_induced_DEG, results="asis", fig.height=5.5, fig.width=6.5}
+
+## fig.height=c(6,5,5), fig.width=c(5,8,8) # can be vectorised, but sometimes plots are not shown, no DEGs
+## opts_chunk$set(fig.height=5.5, fig.width = 9) ## does not seem to work
+
+## https://gist.github.com/stephenturner/f60c1934405c127f09a6
+## Volcano plot with "significant" genes labeled
+volcanoplot <- function (res, lfcthresh=2, sigthresh=0.05, main="Volcano Plot", legendpos="bottomright", labelsig=FALSE, textcx=1, xlim=c(-4,4), ...) {
+  ### with(res, plot(log2FoldChange, -log10(pvalue), pch=16, cex = 0.45, main=main, ...))
+  plot(pmax(xlim[1], pmin(xlim[2], res$log2FoldChange)), -log10(res$pvalue), pch=16, cex = 0.45, col="gray32", xlab="log2FoldChange", ylab="-log10(pvalue)", xlim=xlim, main=main, ...)
+  with(subset(res, padj<sigthresh ), points(log2FoldChange, -log10(pvalue), pch=16, cex = 0.45, col="red", ...))
+  with(subset(res, abs(log2FoldChange)>lfcthresh), points(log2FoldChange, -log10(pvalue), pch=16, cex = 0.45, col="orange", ...))
+  with(subset(res, padj<sigthresh & abs(log2FoldChange)>lfcthresh), points(log2FoldChange, -log10(pvalue), pch=16, cex = 0.45, col="green", ...))
+  if (labelsig) {
+    require(calibrate)
+    with(subset(res, padj<sigthresh & abs(log2FoldChange)>lfcthresh), textxy(log2FoldChange, -log10(pvalue), labs=Gene, cex=textcx, ...))
+  }
+  legend(legendpos, xjust=1, yjust=1, legend=c(paste("FDR<",sigthresh,sep=""), paste("|LogFC|>",lfcthresh,sep=""), "both"), pch=16, col=c("red","orange","green"))
+}
+
+##  pch=20
+### png("diffexpr-volcanoplot.png", 1200, 1000, pointsize=20)
+### volcanoplot(res, lfcthresh=1, sigthresh=alpha_cutoff, textcx=.8, xlim=c(-4, 4))
+### dev.off()
+
+#register(MulticoreParam(32))
+
+#drugs <- setdiff(as.character(unique(samples_meta[,Compound_name])), "DMSO control")
+#doses <- c("Low", "Medium", "High")
+
+top_genes <- 5
+
+res_list <- list() 
+k <- 1 # running index for all combinations
+
+n_exp <- 36
+deg_stats <- data.table(Compound = rep(drugs, each=3), Dose = rep(doses, length(drugs)), n_DEG = numeric(length = n_exp), FC_gt_2 = numeric(length = n_exp), pct_FC_gt_2 = numeric(length = n_exp))
+
+for (i in 1:length(drugs)){
+# for (i in c(1,2,4)){
+# for (i in 1:1){
+
+  d <- drugs[i]
+  cat("  \n#", d, "  \n", fill=T)
+  
+  for (j in 1:length(doses)){
+  
+    dose <- doses[j]
+    cat("  \n##", dose, "  \n", fill=T)
+    
+    res <- results(dds, alpha = alpha_cutoff, contrast = c("group", paste0(d,".",dose), "DMSO control.DMSO"), parallel = TRUE, addMLE = TRUE)
+    
+    res_summary <- capture.output(summary(res))
+    cat(res_summary[1:8], sep="  \n* ") ## skip: "[1] see 'cooksCutoff' argument of ?results" and "[2] see 'independentFiltering' argument of ?results"
+    
+    num_DEG <- sum(res$padj < alpha_cutoff, na.rm=TRUE)
+    cat("  \n* Genes with adjusted P-value not NA (universe of genes): ", sum(!is.na(res$padj)))
+    cat("  \n* Differentially expressed genes: ", num_DEG, "  \n")
+    
+    DESeq2::plotMA(res, main=paste0("DESeq: ", d, " ", dose, " vs DMSO, unshrunken"), alpha=alpha_cutoff, ylim=c(-4,4), MLE = TRUE)
+    
+    DESeq2::plotMA(res, main=paste0("DESeq: ", d, " ", dose, " vs DMSO"), alpha=alpha_cutoff, ylim=c(-4,4))
+  
+    volcanoplot(res, lfcthresh = 1, sigthresh = alpha_cutoff, textcx = 0.8, xlim = c(-4, 4))
+    
+    cat("  \n  \n  -----------------  \n  \n  ")
+    
+    res_print <- print_DESeq_table(res, t2g_info = t2g_genes, alpha_level = alpha_cutoff)
+    
+    plot_up_genes <- res_print[fc == "up", target_id][1:top_genes]
+    plot_up_genes <- plot_up_genes[!(is.na(plot_up_genes))] # if there are not top_genes DEGs, NA values will be returned
+    plot_down_genes <- res_print[fc == "down", target_id][1:top_genes]
+    plot_down_genes <- plot_down_genes[!(is.na(plot_down_genes))]
+    
+    res_print <- res_print[, gene_type := NULL] ## only protein coding genes
+    res_print <- res_print[, target_id := NULL] ## remove "symbol - ensembl_ID"
+    
+    setnames(res_print, "desc", "___________long_gene_description___________")
+    
+    ## print(htmltools::tagList(set_hyperlinks(res_print, "ens_gene", ensembl_url) %>% DT::datatable(caption=paste0("DESeq: ", d, " ", dose, " vs DMSO"), escape=F)))
+    print(htmltools::tagList(set_hyperlinks(res_print, "ens_gene", ensembl_url) %>% DT::datatable(caption=paste0("DESeq: ", d, " ", dose, " vs DMSO"), escape=F, extensions = 'Buttons', options = list(dom = 'Blfrtip', buttons = list('colvis', list(extend = 'copy', exportOptions = list(columns=':visible')), list(extend = 'csv', exportOptions = list(columns=':visible')), list(extend = 'excel', exportOptions = list(columns=':visible')))))))
+   
+    cat("  \n  \n  \n  -----------------  \n  \n  ", fill=T)
+    
+    if (length(plot_up_genes) > 0){
+      cat("  \n  **Top up genes**  \n", fill=T)
+      print(my_plot_counts(dds[,samples_meta[group %in% c("DMSO control.DMSO", paste0(d,".",dose)), Sample]], plot_genes = plot_up_genes, t2g_info = t2g_genes, n_ncol=top_genes))
+    }
+    
+    if (length(plot_down_genes) > 0){
+      cat("  \n  \n  -----------------  \n  \n  ", fill=T)
+      cat("  \n  **Top down genes**  \n", fill=T)
+      print(my_plot_counts(dds[,samples_meta[group %in% c("DMSO control.DMSO", paste0(d,".",dose)), Sample]], plot_genes = plot_down_genes, t2g_info = t2g_genes, n_ncol=top_genes))
+    }
+    
+    if (dose == "Low"){
+      res_low <- copy(res)
+    } else if (dose == "Medium"){
+      res_medium <- copy(res)
+    } else {
+      res_high <- copy(res)
+    }
+    
+    deg_stats <- deg_stats[k, n_DEG := num_DEG]
+    deg_stats <- deg_stats[k, FC_gt_2 := res_print[log2FC > 1 | log2FC < -1,.N]] ## FC > 2
+    if (num_DEG > 0){
+      deg_stats <- deg_stats[k, pct_FC_gt_2 := round(FC_gt_2 * 100 / num_DEG, digits = 2)]
+    }
+    
+    res_list[[k]] <- res
+    k <- k + 1 
+    
+    cat("  \n  \n  -----------------  \n  \n  ", fill=T)
+  }
+  
+  cat("  \n##", "Combined", "  \n", fill=T)
+  
+  ## Venn Diagram: DEGs for all 3 doses
+  sig_low <- rownames(res_low[res_low$padj < alpha_cutoff & !is.na(res_low$padj), ])
+  sig_medium <- rownames(res_medium[res_medium$padj < alpha_cutoff & !is.na(res_medium$padj), ])
+  sig_high <- rownames(res_high[res_high$padj < alpha_cutoff & !is.na(res_high$padj), ])
+  
+  venn.plot <- venn.diagram(x=list(S1=as.matrix(sig_low), S2=as.matrix(sig_medium), S3=as.matrix(sig_high)), fill = c("red", "cyan3", "green3"), alpha=c(0.5, 0.5, 0.5), cex=0.9, cat.cex=0.8, fontfamily="sans", cat.fontfamily="sans", main.fontfamily = "sans", cat.dist=c(0.1,0.1,0.1),  filename=NULL, euler.d=F, scaled=F, print.mode=c("percent", "raw"), sigdigs = 2, category.names=paste0(c("Low", "Medium","High"), "\n", c(length(sig_low), length(sig_medium), length(sig_high))), main = d)
+
+  grid.newpage()
+  grid.draw(venn.plot)
+  
+  ## Union table
+  ## overlap_sets <- calculate.overlap(x = list("L" = sig_low, "M" = sig_medium, "H" = sig_high))
+  union_set <- union(union(sig_low, sig_medium), sig_high)
+  res_low_s <- data.table(as.data.frame(res_low[union_set,]), keep.rownames = T)
+  res_medium_s <- data.table(as.data.frame(res_medium[union_set,]), keep.rownames = T)
+  res_high_s <- data.table(as.data.frame(res_high[union_set,]), keep.rownames = T)
+  
+  cat("  \n  \n  -----------------  \n  \n  ", fill=T)
+  
+  res_merged_print <- print_DESeq_union_table(res_low_s, res_medium_s, res_high_s, t2g_info = t2g_genes, alpha_level = alpha_cutoff)
+  setnames(res_merged_print, "desc", "___________long_gene_description___________")
+  ### print(htmltools::tagList(set_hyperlinks(res_merged_print, "ens_gene", ensembl_url) %>% DT::datatable(caption=paste0("DESeq: ", d, " vs DMSO"), escape=F)))
+  print(htmltools::tagList(set_hyperlinks(res_merged_print, "ens_gene", ensembl_url) %>% DT::datatable(caption=paste0("DESeq: ", d, " vs DMSO"), escape=F, extensions = 'Buttons', options = list(dom = 'Blfrtip', buttons = list('colvis', list(extend = 'copy', exportOptions = list(columns=':visible')), list(extend = 'csv', exportOptions = list(columns=':visible')), list(extend = 'excel', exportOptions = list(columns=':visible')))))))
+  
+  cat("  \n  \n  \n -----------------  \n  \n  ", fill=T)
+  
+}
+
+```
+
+
+-------------------------------
+
+# DEG overview statistics
+
+* the summary table shows:  
+
+* number of identified differentially expressed genes (n_DEG)
+* DEGs with fold change > 2 (FC_gt_2), [based on DESeq shrunken fold changes]
+* percentage of DEGs with FC > 2 (pct_FC_get_2)
+
+---------------------------------
+
+
+```{r DEG_overview}
+
+## deg_stats %>% DT::datatable(caption="Differential gene expression: compound treatment versus DMSO", escape=F)
+
+deg_stats %>% DT::datatable(caption="Differential gene expression: compound treatment versus DMSO control", escape=F, extensions = 'Buttons', options = list(dom = 'Blfrtip', buttons = list('colvis', list(extend = 'copy', exportOptions = list(columns=':visible')), list(extend = 'csv', exportOptions = list(columns=':visible')), list(extend = 'excel', exportOptions = list(columns=':visible')))))
+
+```
+
+--------------------------------
+
+```{r DEG_overview_plot, fig.height = 6, fig.width = 9}
+
+plot_data <- copy(deg_stats)
+plot_data <- plot_data[, Dose := factor(Dose, levels=c("Low", "Medium", "High"))]
+plot_data <- plot_data[is.na(pct_FC_gt_2), pct_FC_gt_2 := 0]
+
+p <- ggplot(plot_data, aes(x=Dose, y=n_DEG, fill=Dose))
+p <- p + geom_bar(stat="identity", position="dodge")
+p <- p + facet_wrap(~Compound, ncol=6)
+p <- p + xlab(NULL) + ylab("Number of DEGs")
+p <- p + theme(legend.position="top")
+p <- p + geom_text(aes(label=formatC(n_DEG, big.mark = ",", format="d")), position=position_dodge(width=0.9), vjust=-0.25, size=3)
+p <- p + scale_y_continuous(expand = c(0.1, 0))
+p
+
+p <- ggplot(plot_data, aes(x=Dose, y=FC_gt_2, fill=Dose))
+p <- p + geom_bar(stat="identity", position="dodge")
+p <- p + facet_wrap(~Compound, ncol=6)
+p <- p + xlab(NULL) + ylab("Number of DEGs with FC > 2")
+p <- p + theme(legend.position="top")
+p <- p + geom_text(aes(label=formatC(FC_gt_2, big.mark = ",", format="d")), position=position_dodge(width=0.9), vjust=-0.25, size=3)
+p <- p + scale_y_continuous(expand = c(0.1, 0))
+p
+
+cat("The second number within a bar indicates DEGs with FC > 2: ", fill=T)
+p <- ggplot(plot_data, aes(x=Dose, y=log2(n_DEG+1), fill=Dose))
+p <- p + geom_bar(stat="identity", position="dodge")
+p <- p + facet_wrap(~Compound, ncol=6)
+p <- p + xlab(NULL) + ylab("log2(Number of DEGs + 1)")
+p <- p + theme(legend.position="top")
+p <- p + geom_text(aes(label=paste0(formatC(n_DEG, big.mark = ",", format="d"), "\n", formatC(FC_gt_2, big.mark = ",", format="d"))), position=position_dodge(width=0.9), vjust=0.5, size=3)
+p <- p + scale_y_continuous(expand = c(0.1, 0))
+p
+
+cat("The second number within a bar indicates the percentage of DEGs with FC > 2: ", fill=T)
+p <- ggplot(plot_data, aes(x=Dose, y=log2(n_DEG+1), fill=Dose))
+p <- p + geom_bar(stat="identity", position="dodge")
+p <- p + facet_wrap(~Compound, ncol=6)
+p <- p + xlab(NULL) + ylab("log2(Number of DEGs + 1)")
+p <- p + theme(legend.position="top")
+p <- p + geom_text(aes(label=paste0(formatC(n_DEG, big.mark = ",", format="d"), "\n", round(pct_FC_gt_2, digits = 0), "%")), position=position_dodge(width=0.9), vjust=0.5, size=3)
+p <- p + scale_y_continuous(expand = c(0.1, 0))
+p
+
+```
+
+
+```{r extract_TPM_table, include=F}
+
+## TPM values for 6 DMSO controls
+
+# tpm_table <- data.table(txi$abundance[,1:6], keep.rownames = T)
+# tpm_table <- tpm_table[, gene := gsub(' - .*', '', rn, perl=T)]
+# tpm_table <- tpm_table[, ens_gene := gsub('.* - ', '', rn, perl=T)]
+# tpm_table <- tpm_table[, rn := NULL]
+# 
+# s_names <- colnames(tpm_table)[1:6]
+# s_names_new <- samples_meta[Sample %in% s_names, .(Sample, Sample_name)]
+# stopifnot(all.equal(s_names_new[, Sample], s_names))
+# setnames(tpm_table, s_names, s_names_new[, Sample_name])
+# setcolorder(tpm_table, c("gene","ens_gene",s_names_new[, Sample_name]))
+# 
+# write.table(tpm_table, file="TPM_DMSO_controls_6.txt", quote=F, sep="\t", row.names=F)
+
+```
+
+
+```{r test_interaction_formula, include=F}
+
+#### design(dds) <- formula(~  Replicate + Compound_name:Concentration2) ### same results!?!?
+
+```
+
+
+```{r SVA_test}
+
+# library("sva")
+# 
+# 
+# dat <- counts(dds, normalized=TRUE)
+# idx <- rowMeans(dat) > 1
+# dat <- dat[idx,]
+# mod <- model.matrix(~ dex, colData(dds))
+# mod0 <- model.matrix(~ 1, colData(dds))
+# svseq <- svaseq(dat, mod, mod0, n.sv=2)
+# 
+# 
+# dat <- counts(dds)
+# idx <- rowMeans(dat) > 1
+# dat <- dat[idx,]
+# 
+# mod <- model.matrix(~ Compound_name, colData(dds)) ## THIS IS PROBALY NOT CORRECT
+# mod0 <- model.matrix(~ 1, colData(dds))
+# 
+# svseq_1 <- svaseq(dat, mod, mod0)
+
+```
+
+
+```{r test_clustering, include=F}
+
+## library(pheatmap)
+
+## tt <- as.data.frame(colData(dds))
+
+# ## select <- order(rowMeans(counts(dds,normalized=TRUE)), decreasing=TRUE)[1:20]
+# select <- order(rowMeans(counts(dds,normalized=FALSE)), decreasing=TRUE)[1:100]
+# nt <- normTransform(dds) # defaults to log2(x+1)
+# 
+# log2.norm.counts <- assay(nt)[select,]
+# 
+# df <- as.data.frame(colData(dds)[,c("Concentration2","Replicate")])
+# pheatmap(log2.norm.counts, cluster_rows=FALSE, show_rownames=FALSE, cluster_cols=FALSE, annotation_col=df)
+# 
+# 
+# pheatmap(assay(rld)[select,], cluster_rows=FALSE, show_rownames=FALSE,
+# cluster_cols=FALSE, annotation_col=df)
+# 
+# pheatmap(assay(vsd)[select,], cluster_rows=FALSE, show_rownames=FALSE,cluster_cols=FALSE, annotation_col=df)
+
+```
+
+
+```{r annotation_checks, include=F}
+
+# ens_annot_file <- "/net/isi-project/CW024_WESSELY_PDASTRO/data/Human_reference/Ensembl/ensembl_hs_GRCh38_v87_gene_map.txt"
+# 
+# t2g <- fread(ens_annot_file, header=F)
+# setnames(t2g, c("target_id", "seqtype", "location", "ens_gene", "gene_type", "tx_type", "ext_gene", "desc"))
+# 
+# # remove version number from ensembl gene IDs
+# t2g <- t2g[, ens_gene := gsub('\\..*', '', ens_gene, perl=T)]
+# 
+# # combine external gene symbol with ensembl ID
+# t2g <- t2g[, gene := paste0(ext_gene, ' - ', ens_gene)]
+# 
+# 
+# ###############################################
+# ## consider only protein coding genes
+# t2g <- t2g[gene_type == "protein_coding", ]
+# ###############################################
+# # unique ensembl gene IDs
+# t2g_genes <- unique(t2g, by="ens_gene")
+# 
+# 
+# 
+# gencode_annot_file <- "/net/isi-project/CW024_WESSELY_PDASTRO/data/Human_reference/Gencode/gencode_gene_map_v25.txt"
+# gencode_annot <- fread(gencode_annot_file, header=F)
+# setnames(gencode_annot, c("target_id", "ens_gene", "name_1", "name_2", "type"))
+# gencode_annot <- gencode_annot[, ens_gene := gsub('\\..*', '', ens_gene, perl=T)]
+# gencode_annot <- unique(gencode_annot, by="ens_gene")
+# 
+# 
+# tester <- t2g_genes[!(ens_gene %in% gencode_annot[, ens_gene]), ] ## exactly all ensembl IDs that are not on main chr: 2,353
+# 
+# 
+# # fastaFile <- readDNAStringSet("/net/isi-project/CW024_WESSELY_PDASTRO/data/Human_reference/Ensembl/ensembl_hs_GRCh38_v87_cdna_ncrna.fa")
+# # seq_name = names(fastaFile)
+# # no_alt_seq <- which(!(seq_name %like% 'CHR_'))
+# # fastaFile_noalt <- fastaFile[no_alt_seq]
+# # writeXStringSet(fastaFile_noalt, "out.fa")
+# 
+
+```
+
+
+```{r save_deseq_results, include=F}
+
+save(res_list, file="DESeq2_results_tables_compound_vs_DMSO_36_pilot_2.RData", compress = TRUE)
+
+```
+
