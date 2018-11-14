@@ -1,0 +1,409 @@
+---
+title: "Untitled"
+author: "Sam"
+date: "26 October 2018"
+output: html_document
+---
+```{r setup, include = TRUE}
+library(Seurat)
+library(dplyr)
+library(devtools)
+library(knitr)
+knit_hooks$set(wrapper = function(before, options, envir) {
+  if (before) {
+    sprintf('    ```{r %s}\n', options$params.src)
+  } else '    ```\n'
+})
+
+```
+```{r1}
+obj<-readRDS("C:/Users/dpag0920/Documents/20181005scseq/hashing.seurat.SNGstd.rds")
+```
+```{r2}
+write.csv(obj@meta.data, "sngstdmeta.csv")
+```
+
+```
+{r3}print(table(obj@meta.data$hash_maxID))
+```
+
+```{r4}
+print(table(obj@meta.data$hto_classification_global))
+```
+
+```{r5}
+obj<-SetAllIdent(obj, id="hash_max_ID")
+```
+
+```{r6} 
+RidgePlot(obj, features.plot = rownames(GetAssayData(obj, assay.type = "HTO"))[1:6],nCol=3)
+```
+
+```{r7}
+mito.genes<-grep(pattern="^MT-", x=rownames(x=obj@data), value = TRUE)
+```
+
+```{r8}
+percent.mito<-Matrix::colSums(obj@raw.data[mito.genes, ])/Matrix::colSums(obj@raw.data)
+```
+
+```{r9}
+obj<-AddMetaData(object=obj, metadata=percent.mito, col.name = "percent.mito")
+```
+
+```{r10}
+obj@meta.data$percent.mito
+```
+```{r11}
+VlnPlot(object=obj, features.plot = c("nGene", "nUMI", "percent.mito"), nCol =3)
+```
+par(mfrow = c(1,2))
+
+```{r12}
+GenePlot(object = obj, gene1 = "nUMI", gene2 = "percent.mito")
+```
+
+```{r13}
+GenePlot(object = obj, gene1 = "nUMI", gene2 = "nGene")
+```
+```{r14}
+GenePlot(object = obj, gene1 = "percent.mito", gene2 = "nGene")
+```
+
+```{r15}
+obj <- FilterCells(object = obj, subset.names = c("nGene", "percent.mito"), low.thresholds = c(200, -Inf), high.thresholds = c(5000, 0.10))
+```
+
+```{r16}
+obj <- NormalizeData(object = obj, normalization.method = "LogNormalize", scale.factor = 10000)
+```
+
+```{r17}
+obj<-FindVariableGenes(object =obj, mean.function = ExpMean, dispersion.function = LogVMR, x.low.cutoff = 0.0125, x.high.cutoff = 3, y.cutoff = 0.5)
+```
+
+```{r18}
+length(x=obj@var.genes)
+```
+
+```{r19}
+obj<-ScaleData(object = obj, vars.to.regress = c("nNUMI", "percent.mito"))
+```
+
+```{r20}
+obj<-RunPCA(object =obj, pc.genes = obj@var.genes, do.print = TRUE, pcs.print = 1:5, genes.print = 5)
+```
+
+```{r21}
+PrintPCA(object = obj, pcs.print = 1:5, genes.print = 5, use.full = FALSE)
+```
+
+```{r22}
+VizPCA(object = obj, pcs.use = 1:2)
+```
+
+```{r23}
+obj <- ProjectPCA(object = obj, do.print = FALSE)
+```
+
+```{r24}
+PCHeatmap(object = obj, pc.use = 1, cells.use = 500, do.balanced = TRUE, label.columns = FALSE)
+```
+
+```{r25}
+PCHeatmap(object = obj, pc.use = 1:12, cells.use = 500, do.balanced = TRUE, label.columns = FALSE, use.full = FALSE)
+```
+
+```{r26}
+obj <- JackStraw(object = obj, num.replicate = 100, display.progress = FALSE)
+```
+
+```{r27}
+JackStrawPlot(object = obj, PCs = 1:12)
+```
+#comparing the distribution of p-values for each PC with a uniform distribution (dashed line). 'Significant' PCs will show a strong enrichment of genes with low p-values (solid curve above the dashed line).
+
+
+```{r28}
+PCElbowPlot(object = obj)
+```
+#A more ad hoc method for determining which PCs to use is to look at a plot of the standard deviations of the principle components and draw your cutoff where there is a clear elbow in the graph
+
+
+```{r29}
+obj <- FindClusters(object = obj, reduction.type = "pca", dims.use = 1:12, resolution = 0.6, print.output = 0, save.SNN = TRUE)
+```
+
+```{r30}
+obj <- RunTSNE(object = obj, dims.use = 1:10, do.fast = TRUE)
+```
+
+```{r31}
+TSNEPlot(object = obj)
+```
+
+```{r32}
+saveRDS(obj, file = "20181022sngstd.rds")
+```
+
+```{r33}
+cluster1.markers <- FindMarkers(object = obj, ident.1 = 1, min.pct = 0.25)
+```
+
+```{r34}
+print(x = head(x = cluster1.markers, n = 5))
+```
+
+```{r35}
+table(obj@ident)
+```
+
+```{r36}
+cluster0.markers <- FindMarkers(object = obj, ident.1 = 0, min.pct = 0.25)
+print(x = head(x = cluster0.markers, n = 25))
+write.csv(cluster0.markers, "cluster0.csv")
+```
+
+```{r37}
+cluster2.markers <- FindMarkers(object = obj, ident.1 = 2, min.pct = 0.25)
+print(x = head(x = cluster2.markers, n = 25))
+```
+
+```{r38}
+cluster3.markers <- FindMarkers(object = obj, ident.1 = 3, min.pct = 0.25)
+print(x = head(x = cluster3.markers, n = 25))
+```
+
+```{r39}
+cluster4.markers <- FindMarkers(object = obj, ident.1 = 4, min.pct = 0.25)
+print(x = head(x = cluster4.markers, n = 25))
+```
+
+```{r40}
+cluster5.markers <- FindMarkers(object = obj, ident.1 = 5, min.pct = 0.25)
+print(x = head(x = cluster5.markers, n = 25))
+```
+
+```{r41}
+cluster6.markers <- FindMarkers(object = obj, ident.1 = 6, min.pct = 0.25)
+print(x = head(x = cluster0.markers, n = 25))
+```
+
+```{r42}
+obj.markers <- FindAllMarkers(object = obj, only.pos = TRUE, min.pct = 0.25, thresh.use = 0.25)
+```
+
+```{r43}
+obj.markers %>% group_by(cluster) %>% top_n(2, avg_logFC)
+```
+
+```{r44}
+VlnPlot(object =obj, features.plot = c("SPINT2", "TMEM176B", "PDIA6", "FLNA", "NAAA", "TP53"))
+```
+
+```{r45}
+VlnPlot(object =obj, features.plot = c("CD82", "ARL6IP1", "CTSZ", "QPRT", "F13A1", "TREM2", "DBI", "ETFB"))
+```
+#These genes hit from all clusters on enrichr as ABA-Up - Lingula (ML)
+#"CD82", "ARL6IP1", "CTSZ", "QPRT", "F13A1", "TREM2", "DBI", "ETFB", "SPINT2", "ELAVL1", "GM2A", "TIMP3", "RPS10", "CTSD", "CTSC", "FADS1", "ASCL1", "RNASET2", "EMP1", "PDIA6", "NPC2", "NAAA", "TXNIP", "GAS6", "SGK1", "SMPDL3A", "TP53", "ALDH7A1", "ENG", "COLEC12", "CD63", "BCL2A1", "EPAS1", "ZFP36L2", "GNG5", "FLNA", "A2M", "PLTP", "ACE", "TMEM176B", "EPHX1", "CFLAR", "LYZ", "SORBS3", "ATOX1", "DAB2", "CD9", "GALM", "LRP10", "TPT1"
+
+
+```{r46}
+VlnPlot(object =obj, features.plot = c("SPINT2", "ELAVL1", "GM2A", "TIMP3", "RPS10", "CTSD", "CTSC", "FADS1"))
+```
+
+```{r47}
+VlnPlot(object =obj, features.plot = c("ASCL1", "RNASET2", "EMP1", "PDIA6", "NPC2", "NAAA", "TXNIP", "GAS6"))
+```
+
+```{r48}
+VlnPlot(object =obj, features.plot = c("SGK1", "SMPDL3A", "TP53", "ALDH7A1", "ENG", "COLEC12", "CD63", "BCL2A1"))
+```
+
+```{r49}
+VlnPlot(object =obj, features.plot = c("EPAS1", "ZFP36L2", "GNG5", "FLNA", "A2M", "PLTP", "ACE", "TMEM176B"))
+```
+
+```{r50}
+VlnPlot(object =obj, features.plot = c("EPHX1", "CFLAR", "LYZ", "SORBS3", "ATOX1", "DAB2", "CD9", "GALM", "LRP10", "TPT1"))
+```
+
+```{r51}
+FeaturePlot (object=obj, features.plot = c("SPINT2", "TMEM176B", "PDIA6", "FLNA", "NAAA", "TP53"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r52}
+FeaturePlot (object=obj, features.plot = c("CD82", "ARL6IP1", "CTSZ", "QPRT", "F13A1", "TREM2", "DBI", "ETFB"), cols.use = c("grey", "purple"), reduction.use="tsne")
+#F13A1 could be interesting cluster-specific marker, seems to reasonably mark astrocytes/glia in cellseek
+```
+
+```{r53}
+FeaturePlot (object=obj, features.plot = c(), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r54}
+FeaturePlot (object=obj, features.plot = c("SPINT2", "ELAVL1", "GM2A", "TIMP3", "RPS10", "CTSD", "CTSC", "FADS1"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r55}
+FeaturePlot (object=obj, features.plot = c("SGK1", "SMPDL3A", "TP53", "ALDH7A1", "ENG", "COLEC12", "CD63", "BCL2A1"), cols.use = c("grey", "purple"), reduction.use="tsne")
+#CD63 is heavily expressed in GCs according to cellseek
+```
+
+```{r56}
+FeaturePlot (object=obj, features.plot = c("EPAS1", "ZFP36L2", "GNG5", "FLNA", "A2M", "PLTP", "ACE", "TMEM176B"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r57}
+FeaturePlot (object=obj, features.plot = c("EPHX1", "CFLAR", "LYZ", "SORBS3", "ATOX1", "DAB2", "CD9", "GALM", "LRP10", "TPT1"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r58}
+FeaturePlot (object=obj, features.plot = c("EPHX1", "CFLAR", "LYZ", "SORBS3", "ATOX1", "DAB2", "CD9", "GALM", "LRP10", "TPT1"), cols.use = c("grey", "purple"), reduction.use="tsne")
+ ```
+  #Check genes from human whole brain/cerebellum autopsy
+
+#"SLC17A7","SATB2","GRM4","GAD1","FLT1","DUSP1","COBLL1","PDGFRB",
+#"SLC1A2","SLC4A4","MOBP","CBLN2","RASGRF2","COL5A2","GLIS3","CUX2",
+#"NEFM","RORB","PHACTR2","EYA4","IL1RAPL2","HSP8","TSHZ2","FOXP2",
+#"PCP4","PDE1C","HS3ST2","HS3ST5","JTR2C","TLE4","NR4A2","RELN",
+#"RBFOX3","FAT2","SORCS3","GAD2","RYR1","NXPH1","IGFBP7","B2M",
+#"CEMIP","PPFIBP1","GPC5","GRIA1","SLC1A3","ALCH1A1","PLP1","MBP",
+#"LUZP2","PCDH15","ORAOV1","LRP6","APBB1IP","P2RY12"
+ 
+ ```{r59}
+ FeaturePlot (object=obj, features.plot = c("SLC17A7","SATB2","GRM4","GAD1","FLT1","DUSP1","COBLL1","PDGFRB"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+
+```{r60}
+FeaturePlot (object=obj, features.plot = c("SLC1A2","SLC4A4","MOBP","CBLN2","RASGRF2","COL5A2","GLIS3","CUX2"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r61}
+FeaturePlot (object=obj, features.plot = c("NEFM","RORB","PHACTR2","EYA4","IL1RAPL2","HSP8","TSHZ2","FOXP2"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r62}
+FeaturePlot (object=obj, features.plot = c("PCP4","PDE1C","HS3ST2","HS3ST5","HTR2C","TLE4","NR4A2","RELN"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r63}
+FeaturePlot (object=obj, features.plot = c("RBFOX3","FAT2","SORCS3","GAD2","RYR1","NXPH1","IGFBP7","B2M"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r64}
+FeaturePlot (object=obj, features.plot = c("CEMIP","PPFIBP1","GPC5","GRIA1","SLC1A3","ALDH1A1","PLP1","MBP"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r65}
+FeaturePlot (object=obj, features.plot = c("LUZP2","PCDH15","ORAOV1","LRP6","APBB1IP","P2RY12"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r66}
+#Also try heatmap code 
+
+top10 <- obj.markers %>% group_by(cluster) %>% top_n(10, avg_logFC)
+DoHeatmap(object = obj, genes.use = top10$gene, slim.col.label = TRUE, remove.key = TRUE)
+```
+
+#Check top expressed genes
+#"LCP1", "PLAUR","TGFBI","CXCL3","CXCL8","CXCL5",
+#"CXCL1","CCL2","IL1B","PPBP","MT1F","SERPINA1",
+#"MT1H","MT1G","MT1X","S100A8","MT1M","MT1E","CCL13" 
+#"INHBA",	"MMP10",	"CCL22",	"PTGES",	"TXN",	"TIMP3",
+#"TFPI2",	"MMP1",	"ISG15",	"CCL3L3",	"F13A1",	"FOLR2",
+#"ITM2B",	"SEPP1",	"BLVRB",	"DAB2",	"RGS10",	"MS4A6A",
+#"CD36",	"ADAP2",	"GPNMB",	"ACP5",	"HLA-DMB",	"HLA-DPB1",
+#"LIPA",	"FUCA1",	"CHCHD6",	"TGM2",	"CD9",	"CHIT1",	"HES4",
+#"NR4A2",	"GEM",	"LGALS3",	"CXCR4",	"THAP2",	"AREG"",	"APOC1",
+#"GADD45B",	"G0S2",	"KIAA0101",	"UBE2C",	"PTTG1",	"CKS1B",	
+#"STMN1",	"CKS2",	"HMGB2",	"TUBB",	"TUBA1B",	"HIST1H4C",
+
+```{r68}
+FeaturePlot (object=obj, features.plot = c("LCP1", "PLAUR","TGFBI","CXCL3","CXCL8","CXCL5"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r69}
+FeaturePlot (object=obj, features.plot = c("CXCL1","CCL2","IL1B","PPBP","MT1F","SERPINA1"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r70}
+FeaturePlot (object=obj, features.plot = c("MT1H","MT1G","MT1X","S100A8","MT1M","MT1E","CCL13"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r71}
+FeaturePlot (object=obj, features.plot = c("INHBA",	"MMP10",	"CCL22",	"PTGES",	"TXN",	"TIMP3"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r72}
+FeaturePlot (object=obj, features.plot = c("TFPI2",	"MMP1",	"ISG15",	"CCL3L3",	"F13A1",	"FOLR2"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r73}
+FeaturePlot (object=obj, features.plot = c("ITM2B",	"SEPP1",	"BLVRB",	"DAB2",	"RGS10",	"MS4A6A"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r74}
+FeaturePlot (object=obj, features.plot = c("CD36",	"ADAP2",	"GPNMB",	"ACP5",	"HLA-DMB",	"HLA-DPB1"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r75}
+FeaturePlot (object=obj, features.plot = c("LIPA",	"FUCA1",	"CHCHD6",	"TGM2",	"CD9",	"CHIT1",	"HES4"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r76}
+FeaturePlot (object=obj, features.plot = c("NR4A2",	"GEM",	"LGALS3",	"CXCR4",	"THAP2",	"AREG",	"APOC1"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r77}
+FeaturePlot (object=obj, features.plot = c("GADD45B","G0S2",	"KIAA0101",	"UBE2C",	"PTTG1",	"CKS1B"), cols.use = c("grey", "purple"), reduction.use="tsne")
+FeaturePlot (object=obj, features.plot = c("STMN1",	"CKS2",	"HMGB2",	"TUBB",	"TUBA1B",	"HIST1H4C"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+#Query TUBB gene
+#Check genes from mouse developmental time series
+#Need to compile list
+
+```{r79}
+FeaturePlot (object=obj, features.plot = c("CALB1", "PAX6", "CNTN2", "FOXP2", "GRM1", "PRKCG"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r80}
+FeaturePlot (object=obj, features.plot = c("COLEC12", "CD63", "CD82", "EPAS1", "CTSZ", "RPLPO", "QPRT", "F13A1"), cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+
+```{r81}
+FeaturePlot (object=obj, features.plot = c("L1CAM", "NRN1", "NRP1", "UNC5D", "SLC1A3", "AQP4", "GJA1", "OLIG2", "PDGFRA", "SLC17A6"), cols.use = c("grey", "purple"), reduction.use="tsne")
+
+FeaturePlot (object=obj, features.plot = c("SYT4", "CNTNAP2", "DLX2", "ERBB4", "SLC32A1", "TOP2A", "CENPF", "MKI67"), cols.use = c("grey", "purple"), reduction.use="tsne")
+
+FeaturePlot (object=obj, features.plot = c("OTX2", "WNT7B", "AUTS2", "KRT31", "PCDH17", "LPL", "SNCB", "NRP2", "TTR", "MYH3"), cols.use = c("grey", "purple"), reduction.use="tsne")
+
+FeaturePlot (object=obj, features.plot = c("VCAN", "EMX1", "GSX2", "FOXG1", "OLFM1", "CRX", "ISL1", "DLX1", "TCF7L2", "ISL1"), cols.use = c("grey", "purple"), reduction.use="tsne")
+
+```
+#From Madeline lancaster's organoid paper
+```{r82}
+FeaturePlot (object=obj, features.plot = c("CA8","ITPR1", "STK17B", "PPP1R17", "LPL", "TRPC3", "CEP76", "FGL2", "INPP5A", "ATL2", "GRIK1", "RORA"),  cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+#These are top correlates from CALB1 search, #http://oldhamlab.ctec.ucsf.edu/genes/#forward
+```{r83}
+FeaturePlot (object=obj, features.plot = c("NFX1", "CDH13", "RBFOX3", "C11orf95", "ASPHD2", "GARNL3", "GPRC5C", "ZNF136", "PHYHIP", "NCOA1", "BRPF1", "MICU1"),  cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+#These are correlates from PAX6 from 
+#http://oldhamlab.ctec.ucsf.edu/genes/#forward
+```{r83}
+FeaturePlot (object=obj, features.plot = c("BCAS1", "MOBP", "PAQR6", "PLA2G16", "DAAM2", "LHPP", "PADI2", "GAB2", "MAG", "PLP1", "PLEKHB1"),  cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+#These are correlates from MBP from 
+#http://oldhamlab.ctec.ucsf.edu/genes/#forward
+```{r84}
+FeaturePlot (object=obj, features.plot = c("GAP43", "ANP32E", "USP1", "SSX2IP", "SNAP25", "C11orf58", "ELP4", "POLB", "SMYD3", "WTAP", "CUL3", "MZT1"),  cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+#These are correlates from PARVA from 
+#http://oldhamlab.ctec.ucsf.edu/genes/#forward
+```{r84}
+FeaturePlot (object=obj, features.plot = c("GCSH", "FTH1","HLA-C", "HLA-E", "ATP6V0E1", "SSX2", "IFI16", "IFITM1", "PPIF", "ITGA6", "SH3BGRL"),  cols.use = c("grey", "purple"), reduction.use="tsne")
+```
+#These are correlates from B2m
+#http://oldhamlab.ctec.ucsf.edu/genes/#forward
