@@ -1,0 +1,58 @@
+################### 10x experiment on nuclei from da BRAIN for Sam ################
+library(Seurat)
+#library(Matrix.utils)
+
+
+cer <- Matrix(as.matrix(read.table('~/Desktop/sam/GSE97930_CerebellarHem_snDrop-seq_UMI_Count_Matrix_08-01-2017.txt',
+                                   stringsAsFactors = F, header = T, sep = '\t')), sparse = T)
+
+#viz <- Matrix(as.matrix(read.table('~/Desktop/sam/GSE97930_VisualCortex_snDrop-seq_UMI_Count_Matrix_08-01-2017.txt',
+                                   stringsAsFactors = F, header = T, sep = '\t')), sparse = T)
+
+#fxc <- Matrix(as.matrix(read.table('~/Desktop/sam/GSE97930_FrontalCortex_snDrop-seq_UMI_Count_Matrix_08-01-2017.txt',
+                                   stringsAsFactors = F, header = T, sep = '\t')), sparse = T)
+
+
+######
+#tmp <- merge.Matrix(cer, fxc, by.x = rownames(cer), by.y = rownames(fxc))
+#all.10x <- merge.Matrix(viz, tmp, by.x = rownames(viz), by.y = rownames(test))
+#all.10x.cheat <- all.10x[!duplicated(rownames(all.10x)), ]
+###### un-inspired way of selecting which of duplicated genes to take ##########
+
+sam <- CreateSeuratObject(raw.data = cer, min.cells = 3, min.genes = 200)
+
+sam <- NormalizeData(object = sam, normalization.method = 'LogNormalize', scale.factor = 10000)
+sam <- FindVariableGenes(object = sam, mean.function = ExpMean,
+                         dispersion.function = LogVMR, x.low.cutoff = 0.0125,
+                         x.high.cutoff = 3, y.cutoff = 0.5)
+
+sam <- ScaleData(sam, vars.to.regress = ("nUMI"), genes.use = sam@var.genes, model.use = "negbinom")
+
+plot1.genes <- c('SLC17A7', 'SATB2', 'GRM4', 'GAD1', 
+                 'RYR1', 'FLT1', 'DUSP1', 'COBLL1',
+                 'PDGFRB', 'SLC1A2', 'SLC4A4', 
+                 'MOBP', 'PCDH15', 'APBB1IP')
+
+VlnPlot(object = sam, features.plot = plot1.genes)
+
+
+
+sam.pca <- RunPCA(sam, pcs.compute = 30, weight.by.var = FALSE)
+sam.tsne <- RunTSNE(sam.pca, dims.use = 1:19, do.fast = T)
+sam.clusters.tsne <- FindClusters(sam.tsne, reduction.type = "pca", dims.use = 1:19, save.SNN = T)
+
+# color by cluster ID, annotated cluster from the manuscript, or batch
+# Can switch the identity class using SetAllIdent if desired
+
+par(mfrow = c(2,1))
+TSNEPlot(sam.clusters.tsne, do.label = T)
+TSNEPlot(sam.clusters.tsne, group.by = "orig.ident")
+
+# Find Markers of ductal cell subcluster, using the negative binomial test
+# only test genes with a 20% difference in detection rate to speed-up (optional)
+purk.z.markers.1 <- FindMarkers(sam.clusters.tsne, ident.1 = 0, ident.2 = 1, test.use = "negbinom", min.diff.pct = 0.2)
+purk.z.markers.2 <- FindMarkers(sam.clusters.tsne, ident.1 = 0, ident.2 = 2, test.use = "negbinom", min.diff.pct = 0.2)
+purk.z.markers.3 <- FindMarkers(sam.clusters.tsne, ident.1 = 1, ident.2 = 2, test.use = "negbinom", min.diff.pct = 0.2)
+
+
+########### issues with memory for now but next step would be to analyze the known associations for these genes in the Gene Ontology Consortium dataaset and Mammalian Phenotype Ontology ##
