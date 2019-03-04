@@ -1,0 +1,2506 @@
+---
+title: "20190118__Organoids_CCA_with_discarded_retrieved"
+author: "Sam N"
+date: "18/01/2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+#Here I will attempt to merge my code prior CCA to incorporate code from the clustering guide (around line 170) to see if I can examine which cells have been discarded in the CCA ~Seurat_Allignment_Tutorial.pdf (Page 4 of 10)
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(Seurat)
+library(devtools)
+library(enrichR)
+library(Matrix)
+library(cowplot)
+```
+
+```{r NAY6153A2}
+NAY6153A2<-readRDS("/Users/samnayler/Desktop/bsg-ftp.well.ox.ac.uk/additional_analyses/10x-hashing/NAY6153A2/hashing.sng/seurat.rds")
+NAY6153A2
+summary (NAY6153A2)
+```
+
+```{r data test}
+#ctrl.data<-read.table("~/Desktop/immune_alignment_expression_matrices/immune_control_expression_matrix.txt.gz", sep = "\t")
+#ctrl <- CreateSeuratObject(raw.data = ctrl.data, project = "IMMUNE_CTRL", min.cells = 5)
+#This is just to have the pbmc ccq dataset as a reference
+```
+
+```{r data}
+#Lets try mimicking 
+#ctrl@meta.data$stim<-"CTRL"
+#ctrl<-FilterCells(ctrl, subset.names ="nGene", low.thresholds = 500, high.thresholds = Inf)
+#ctrl<-NormalizeData(ctrl)
+#ctrl<-ScaleData(ctrl, display.progress = F)
+```
+
+```{r datas2}
+NAY6153A2@meta.data$stim<-"CTRL"
+NAY6153A2<-SetAllIdent(NAY6153A2, id="hash_max_ID")
+#Do I need this, what about mito.genes filtering?
+mito.genes<-grep(pattern="^MT-", x=rownames(x=NAY6153A2@data), value = TRUE)
+percent.mito<-Matrix::colSums(NAY6153A2@raw.data[mito.genes,])/Matrix::colSums(NAY6153A2@raw.data)
+NAY6153A2<-AddMetaData(object=NAY6153A2, metadata=percent.mito, col.name = "percent.mito")
+```
+
+```{r vln}
+VlnPlot(object=NAY6153A2, features.plot = c("nGene", "nUMI", "percent.mito"), nCol =3)
+```
+
+```{r filtering}
+NAY6153A2 <- FilterCells(object = NAY6153A2, subset.names = c("nGene", "percent.mito"), low.thresholds = c(200, -Inf), high.thresholds = c(5000, 0.15))
+```
+
+```{r normalisation}
+NAY6153A2<- NormalizeData(object = NAY6153A2, normalization.method = "LogNormalize", scale.factor = 10000)
+```
+
+```{r 17}
+NAY6153A2<-FindVariableGenes(object =NAY6153A2, mean.function = ExpMean, dispersion.function = LogVMR, x.low.cutoff = 0.0125, x.high.cutoff = 3, y.cutoff = 0.5)
+```
+
+```{r plotobj}
+NAY6153A2
+```
+
+```{r scale}
+NAY6153A2<-ScaleData(object = NAY6153A2, vars.to.regress = c("nUMI", "percent.mito"))
+```
+
+#Here is where I should introduce my 'stim' or MG treated data.
+
+```{r NAY6153A1b}
+NAY6153A1<-readRDS("/Users/samnayler/Desktop/bsg-ftp.well.ox.ac.uk/additional_analyses/10x-hashing/NAY6153A1/hashing.sng/seurat.rds")
+#Object is already made and maybe scaled?
+NAY6153A1
+summary (NAY6153A1)
+```
+
+```{r data2}
+NAY6153A1@meta.data$stim<-"STIM"
+NAY6153A1<-SetAllIdent(NAY6153A1, id="hash_max_ID")
+#Do I need this, what about mito.genes filtering?
+mito.genes2<-grep(pattern="^MT-", x=rownames(x=NAY6153A1@data), value = TRUE)
+percent.mito2<-Matrix::colSums(NAY6153A1@raw.data[mito.genes2, ])/Matrix::colSums(NAY6153A1@raw.data)
+NAY6153A1<-AddMetaData(object=NAY6153A1, metadata=percent.mito2, col.name = "percent.mito2")
+```
+
+```{r vlns2}
+VlnPlot(object=NAY6153A1, features.plot = c("nGene", "nUMI", "percent.mito2"), nCol =3)
+```
+
+```{r filterings2}
+NAY6153A1 <- FilterCells(object = NAY6153A1, subset.names = c("nGene", "percent.mito2"), low.thresholds = c(200, -Inf), high.thresholds = c(5000, 0.15))
+```
+
+```{r normalisations2}
+NAY6153A1<- NormalizeData(object = NAY6153A1, normalization.method = "LogNormalize", scale.factor = 10000)
+```
+
+```{r 17s2}
+NAY6153A1<-FindVariableGenes(object =NAY6153A1, mean.function = ExpMean, dispersion.function = LogVMR, x.low.cutoff = 0.0125, x.high.cutoff = 3, y.cutoff = 0.5)
+```
+
+```{r plotobjs2}
+NAY6153A1
+```
+
+```{r scales2}
+NAY6153A1<-ScaleData(object = NAY6153A1, vars.to.regress = c("nUMI", "percent.mito2"))
+```
+
+```{r gene selection}
+control<-FindVariableGenes(NAY6153A2, do.plot=F)
+stimu<-FindVariableGenes(NAY6153A1, do.plot =F)
+g.1<-head(rownames(NAY6153A2@hvg.info),1000)
+g.2<-head(rownames(NAY6153A1@hvg.info),1000)
+genes.use<-unique(c(g.1,g.2))
+genes.use<-intersect(genes.use, rownames(NAY6153A2@scale.data))
+genes.use<-intersect(genes.use, rownames(NAY6153A1@scale.data))
+```
+
+```{r CCA}
+organoids.combined<-RunCCA(NAY6153A2,NAY6153A1, add.cell.id1 ="STD", add.cell.id2 ="MGd21", genes.use = genes.use, num.cc = 30)
+#Note https://github.com/satijalab/seurat/issues/624, I had to add 'add.cell.id1 = "STD" ' and 'add.cell.id2 = "MGd21" ' for this to work
+```
+
+```{r viz CCA}
+p1<-DimPlot(object=organoids.combined, reduction.use = "cca", group.by = "stim", pt.size =0.5)
+p2<-VlnPlot(object=organoids.combined, features.plot = "CC1", group.by = "stim", do.return = TRUE)
+plot_grid(p1,p2)
+```
+
+```{r printDIM}
+PrintDim(object=organoids.combined, reduction.type = "cca", dims.print =1:2, genes.print = 10)
+```
+#I should examine what these genes are and what their relative distribution is in the data; 
+## [1] "CC1"
+##  [1] "RPL41" "RPS6"  "RPLP1" "RPL36" "RPS28" "SPARC" "RPS20" "RPL12"
+##  [9] "RPS14" "RPL8" 
+## [1] ""
+##  [1] "DCX"    "TUBB2A" "SOX4"   "MLLT11" "STMN2"  "MAP1B"  "TUBA1A"
+##  [8] "TUBB2B" "ELAVL3" "GAP43" 
+## [1] ""
+## [1] ""
+## [1] "CC2"
+##  [1] "SLC3A2"  "TMBIM6"  "SQSTM1"  "HSPA5"   "HSP90B1" "PDIA3"   "CLU"    
+##  [8] "PSAP"    "B2M"     "CD63"   
+## [1] ""
+##  [1] "RPL10"  "RPL34"  "RPS8"   "RPL32"  "RPL4"   "RPL14"  "RPS23" 
+##  [8] "RPL5"   "RPL18A" "RPS4X" 
+## [1] ""
+## [1] ""
+
+#Rework this list for a heatmap/featureplot - "RPL41" "RPS6"  "RPLP1" "RPL36" "RPS28" "SPARC" "RPS20" "RPL12" "RPS14" "RPL8" "DCX"    "TUBB2A" "SOX4"   "MLLT11" "STMN2"  "MAP1B"  "TUBA1A" "TUBB2B" "ELAVL3" "GAP43" "TUBB2B" "ELAVL3" "GAP43" "SLC3A2"  "TMBIM6"  "SQSTM1"  "HSPA5"   "HSP90B1" "PDIA3"   "CLU" "PSAP"    "B2M"     "CD63" "RPL10"  "RPL34"  "RPS8"   "RPL32"  "RPL4"   "RPL14"  "RPS23" "RPL5"   "RPL18A" "RPS4X"
+
+```{r metagenebicorplot}
+p3<- MetageneBicorPlot(organoids.combined, grouping.var = "stim", dims.eval = 1:30, display.progress = FALSE)
+```
+
+```{r DimHeatmap}
+DimHeatmap (object = organoids.combined, reduction.type = "cca", cells.use =500, dim.use = 1:9, do.balance = TRUE)
+```
+#Run up til here
+#This is potentially where I would use page 4 of the guide which deviates slightly from the initial protocol I used, This instructs on retrieving discarded cells. 
+
+````{r search for cells whose expresion profile cannot be well-explained by low-dimensional CCA, compared to low-dimensional PCA}
+organoids.combined<-CalcVarExpRatio(organoids.combined, reduction.type = "pca", grouping.var ="stim", dims.use = 1:13)
+
+#Should think about the dimensions used for PCA and tSNE here, Do I need to consult DimHeatmap or p3 MetageneBiCorPlot here to ascertain the correct dimensions to use? I will use 13 as per tutorial
+
+organoids.combined.all.save<-organoids.combined
+
+organoids.combined<-SubsetData(organoids.combined, subset.name = "var.ratio.pca", accept.low = 0.5)
+
+organoids.combined.discard<-SubsetData(organoids.combined.all.save, subset.name = "var.ratio.pca", accept.high=0.5)
+median(organoids.combined@meta.data[, "nGene"])
+
+median(organoids.combined.discard@meta.data[, "nGene"])
+
+VlnPlot(organoids.combined.discard, features.plot ="CALB1", group.by = "stim")
+#Not sure what this means, CALB1 cells in Stim being lost in pruning?
+VlnPlot(organoids.combined.discard, features.plot ="CALB1", group.by = "hash_maxID")
+#What does this mean that I only get 4 samples?!
+#Look at more markers here
+```
+```{r allign subspaces}
+organoids.combined<-AlignSubspace(organoids.combined, reduction.type = "cca", grouping.var = "stim", dims.align = 1:20)
+```
+
+```{r viz alligned subspaces}
+p1<- VlnPlot (object = organoids.combined, features.plot = "ACC1", group.by = "stim", do.return = TRUE)
+p2<- VlnPlot (object = organoids.combined, features.plot = "ACC2", group.by = "stim", do.return = TRUE)
+grid<-plot_grid(p1,p2, labels =c("p1", "p2"))
+grid
+```
+```{r integrated analysis}
+#Earlier version had jack straw to inform number of stasistically-significant clusters, rerun for CCA?
+
+```
+
+```{r  pca and jack straws}
+organoids.combined<-RunPCA(object =organoids.combined, pc.genes = organoids.combined@var.genes, do.print = TRUE, pcs.print = 1:5, genes.print = 5)
+PrintPCA(object = organoids.combined, pcs.print = 1:5, genes.print = 5, use.full = FALSE)
+VizPCA(object = organoids.combined, pcs.use = 1:2)
+organoids.combined <- ProjectPCA(object = organoids.combined, do.print = FALSE)
+PCHeatmap(object = organoids.combined, pc.use = 1, cells.use = 500, do.balanced = TRUE, label.columns = FALSE)
+PCHeatmap(object = organoids.combined, pc.use = 1:20, cells.use = 500, do.balanced = TRUE, label.columns = FALSE, use.full = FALSE)
+PCElbowPlot(object = organoids.combined)
+
+organoids.combined <- JackStraw(object = organoids.combined, num.replicate = 100, display.progress = FALSE)
+JackStrawPlot(object = organoids.combined, PCs = 1:20)
+```
+
+```{r rerun Findclusters with different resolution paramaters 1.0}
+organoids.combined <-RunTSNE (organoids.combined, reduction.use = "cca.aligned", dims.use = 1:20, do.fast = T)
+organoids.combined<-FindClusters(organoids.combined, reduction.type = "cca.aligned", resolution = 1.0, dims.use = 1:20,force.recalc = TRUE)
+p21<- TSNEPlot(organoids.combined, do.return = T, pt.size = 0.5, group.by = "stim")
+p22<- TSNEPlot(organoids.combined, do.label = T, do.return = T, pt.size = 0.5)
+plot_grid(p21,p22, labels = c("p21, res =1.0", "p20, res=1.0"))
+```
+
+
+```{r integrated analysis viz}
+organoids.combined <-RunTSNE (organoids.combined, reduction.use = "cca.aligned", dims.use = 1:20, do.fast = T)
+organoids.combined<-FindClusters(organoids.combined, reduction.type = "cca.aligned", resolution = 0.6, dims.use = 1:20, force.recalc = TRUE)
+p1<- TSNEPlot(organoids.combined, do.return = T, pt.size = 0.5, group.by = "stim")
+p2 <- TSNEPlot(organoids.combined, do.label = T, do.return = T, pt.size = 0.5)
+plot_grid(p1,p2, labels = c("p1, res =0.6", "p2, res=0.6"))
+#This is the original tested resolution
+```
+#Can I add echo=F to the rmd bracket to silence this massive output?
+
+```{r rerun Findclusters with different resolution paramaters 0.1}
+organoids.combined <-RunTSNE (organoids.combined, reduction.use = "cca.aligned", dims.use = 1:20, do.fast = T)
+organoids.combined<-FindClusters(organoids.combined, reduction.type = "cca.aligned", resolution = 0.1, dims.use = 1:20, force.recalc = TRUE)
+p3<- TSNEPlot(organoids.combined, do.return = T, pt.size = 0.5, group.by = "stim")
+p4 <- TSNEPlot(organoids.combined, do.label = T, do.return = T, pt.size = 0.5)
+plot_grid(p3,p4, labels = c("p3, res =0.1", "p4, res=0.1"))
+```
+
+```{r rerun Findclusters with different resolution paramaters 0.2}
+organoids.combined <-RunTSNE (organoids.combined, reduction.use = "cca.aligned", dims.use = 1:20, do.fast = T)
+organoids.combined<-FindClusters(organoids.combined, reduction.type = "cca.aligned", resolution = 0.2, dims.use = 1:20,force.recalc = TRUE)
+p5<- TSNEPlot(organoids.combined, do.return = T, pt.size = 0.5, group.by = "stim")
+p6 <- TSNEPlot(organoids.combined, do.label = T, do.return = T, pt.size = 0.5)
+plot_grid(p5,p6, labels = c("p5, res =0.2", "p6, res=0.2"))
+```
+```{r rerun Findclusters with different resolution paramaters 0.3}
+organoids.combined <-RunTSNE (organoids.combined, reduction.use = "cca.aligned", dims.use = 1:20, do.fast = T)
+organoids.combined<-FindClusters(organoids.combined, reduction.type = "cca.aligned", resolution = 0.3, dims.use = 1:20,force.recalc = TRUE)
+p7<- TSNEPlot(organoids.combined, do.return = T, pt.size = 0.5, group.by = "stim")
+p8 <- TSNEPlot(organoids.combined, do.label = T, do.return = T, pt.size = 0.5)
+plot_grid(p7,p8, labels = c("p7, res =0.3", "p8, res=0.3"))
+```
+
+```{r rerun Findclusters with different resolution paramaters 0.4}
+organoids.combined <-RunTSNE (organoids.combined, reduction.use = "cca.aligned", dims.use = 1:20, do.fast = T)
+organoids.combined<-FindClusters(organoids.combined, reduction.type = "cca.aligned", resolution = 0.4, dims.use = 1:20,force.recalc = TRUE)
+p9<- TSNEPlot(organoids.combined, do.return = T, pt.size = 0.5, group.by = "stim")
+p10<- TSNEPlot(organoids.combined, do.label = T, do.return = T, pt.size = 0.5)
+plot_grid(p9,p10, labels = c("p9, res =0.4", "p10, res=0.4"))
+
+```
+
+```{r rerun Findclusters with different resolution paramaters 0.5}
+organoids.combined <-RunTSNE (organoids.combined, reduction.use = "cca.aligned", dims.use = 1:20, do.fast = T)
+organoids.combined<-FindClusters(organoids.combined, reduction.type = "cca.aligned", resolution = 0.5, dims.use = 1:20,force.recalc = TRUE)
+p11<- TSNEPlot(organoids.combined, do.return = T, pt.size = 0.5, group.by = "stim")
+p12<- TSNEPlot(organoids.combined, do.label = T, do.return = T, pt.size = 0.5)
+plot_grid(p11,p12, labels = c("p11, res =0.5", "p12, res=0.5"))
+
+```
+
+```{r rerun Findclusters with different resolution paramaters 0.6}
+organoids.combined <-RunTSNE (organoids.combined, reduction.use = "cca.aligned", dims.use = 1:20, do.fast = T)
+organoids.combined<-FindClusters(organoids.combined, reduction.type = "cca.aligned", resolution = 0.6, dims.use = 1:20,force.recalc = TRUE)
+p13<- TSNEPlot(organoids.combined, do.return = T, pt.size = 0.5, group.by = "stim")
+p14<- TSNEPlot(organoids.combined, do.label = T, do.return = T, pt.size = 0.5)
+plot_grid(p11,p12, labels = c("p13, res =0.6", "p14, res=0.6"))
+
+```
+
+
+```{r rerun Findclusters with different resolution paramaters 0.7}
+organoids.combined <-RunTSNE (organoids.combined, reduction.use = "cca.aligned", dims.use = 1:20, do.fast = T)
+organoids.combined<-FindClusters(organoids.combined, reduction.type = "cca.aligned", resolution = 0.7, dims.use = 1:20,force.recalc = TRUE)
+p15<- TSNEPlot(organoids.combined, do.return = T, pt.size = 0.5, group.by = "stim")
+p16<- TSNEPlot(organoids.combined, do.label = T, do.return = T, pt.size = 0.5)
+plot_grid(p11,p12, labels = c("p15, res =0.7", "p16, res=0.7"))
+```
+
+```{r rerun Findclusters with different resolution paramaters 0.8}
+organoids.combined <-RunTSNE (organoids.combined, reduction.use = "cca.aligned", dims.use = 1:20, do.fast = T)
+organoids.combined<-FindClusters(organoids.combined, reduction.type = "cca.aligned", resolution = 0.8, dims.use = 1:20,force.recalc = TRUE)
+p17<- TSNEPlot(organoids.combined, do.return = T, pt.size = 0.5, group.by = "stim")
+p18<- TSNEPlot(organoids.combined, do.label = T, do.return = T, pt.size = 0.5)
+plot_grid(p17,p18, labels = c("p17, res =0.8", "p18, res=0.8"))
+```
+
+```{r rerun Findclusters with different resolution paramaters 0.9}
+organoids.combined <-RunTSNE (organoids.combined, reduction.use = "cca.aligned", dims.use = 1:20, do.fast = T)
+organoids.combined<-FindClusters(organoids.combined, reduction.type = "cca.aligned", resolution = 0.9, dims.use = 1:20,force.recalc = TRUE)
+p19<- TSNEPlot(organoids.combined, do.return = T, pt.size = 0.5, group.by = "stim")
+p20<- TSNEPlot(organoids.combined, do.label = T, do.return = T, pt.size = 0.5)
+plot_grid(p19,p20, labels = c("p19, res =0.9", "p20, res=0.9"))
+```
+
+#I want to automate this again to be faster and to also potentially test different numbers of PCA dimensions, I should also go back and check my jack straw. I also need to think about running findmarkers on different res/pca tsnes to see if the populations make more sense.
+
+```{r rerun Findclusters with different resolution paramaters 2.0}
+organoids.combined <-RunTSNE (organoids.combined, reduction.use = "cca.aligned", dims.use = 1:20, do.fast = T)
+organoids.combined<-FindClusters(organoids.combined, reduction.type = "cca.aligned", resolution = 2.0, dims.use = 1:20,force.recalc = TRUE)
+p23<- TSNEPlot(organoids.combined, do.return = T, pt.size = 0.5, group.by = "stim")
+p24<- TSNEPlot(organoids.combined, do.label = T, do.return = T, pt.size = 0.5)
+plot_grid(p23,p24, labels = c("p23, res =2.0", "p24, res=2.0"))
+```
+#What happens if I jack up my resolution to have 13 populations AND THEN look at markers
+```{r id conserved cell type markers}
+org.markers <- FindConservedMarkers(organoids.combined, ident.1 = 6, grouping.var = "stim", print.bar = FALSE)
+write.csv(org.markers, '20190207_Organoids_CCA_Population_markers_resolution2_13pops.csv')
+```
+
+```{r try freq table}
+freq_table<-prop.table(table(organoids.combined@ident, organoids.combined@meta.data[, "stim"]),1)
+barplot(freq_table)
+
+```
+```{r try freq table by organoid}
+freq_table2<-prop.table(table(organoids.combined@ident, organoids.combined@meta.data[, "hash_maxID"]),1)
+barplot(freq_table2)
+#what about colour coding or labelling?
+```
+
+```{r try and make a heatmap of conserved cell type markers }
+rownames(org.markers)
+conservedlist<-rownames(org.markers)
+DoHeatmap(object = organoids.combined, genes.use = conservedlist, slim.col.label = TRUE, remove.key = TRUE)
+#This is a heatmap of the top conserved genes. Interesting way to look at cluster 0 - two populations?
+#Also see 20181212_Piping_for_automated_tsnes FOR a manual featureplot piping of all of the conserved genes plotted as tSNEs - these I guess help represent all the genes that are in common between stim/ctrl, as opposed to the ones that distinguish between the populations, grossly. I should run this list through enrichr.
+```
+####Processing ends and analysis begins
+```{r try saving version with date output}
+#datesave<-paste(format(Sys.Date(), "%Y-%m-%d %I-%p"), "rds", sep = ".")
+#saveRDS(organoids.combined, file = ? Would like to come back to this
+table(organoids.combined@ident)
+TSNEPlot(organoids.combined, do.return=T, pt.size =0.5, dims.use=1:10, do.label=TRUE)
+saveRDS(organoids.combined, file ="20190207CCA_organoids_resolution2_13pops.rds")
+```
+
+```{r assign identities}
+TSNEPlot(organoids.combined, do.label = T, pt.size = 0.5)
+#This will plot before new labels
+new.ident<-c("Population 0","Population 1","Population 2","Population 3","Population 4","Population 5","Population 6")
+for (i in 0:6) {
+  organoids.combined<-RenameIdent(object = organoids.combined, old.ident.name = i, 
+                                  new.ident.name = new.ident[i +1])
+
+}
+
+TSNE20190124<-TSNEPlot(organoids.combined, do.label = T, pt.size = 0.5)
+#This will plot after labels
+```
+
+```{r I should consider plucking my code from my previous analysis to find markers using the cca and do the DE for cluster populations as in original analysis}
+cluster0.markers <- FindMarkers(object = organoids.combined, ident.1 = "Population 0", min.pct = 0.25)
+print(x = head(x = cluster0.markers, n = 500))
+#Find all markers of cluster 0
+
+cluster1.markers <- FindMarkers(object = organoids.combined, ident.1 = "Population 1", min.pct = 0.25)
+print(x = head(x = cluster1.markers, n = 500))
+
+cluster2.markers <- FindMarkers(object = organoids.combined, ident.1 = "Population 2", min.pct = 0.25)
+print(x = head(x = cluster2.markers, n = 500))
+
+cluster3.markers <- FindMarkers(object = organoids.combined, ident.1 = "Population 3", min.pct = 0.25)
+print(x = head(x = cluster3.markers, n = 500))
+
+cluster4.markers <- FindMarkers(object = organoids.combined, ident.1 = "Population 4", min.pct = 0.25)
+print(x = head(x = cluster4.markers, n = 500))
+
+cluster5.markers <- FindMarkers(object = organoids.combined, ident.1 = "Population 5", min.pct = 0.25)
+print(x = head(x = cluster5.markers, n = 500))
+
+cluster6.markers <- FindMarkers(object = organoids.combined, ident.1 = "Population 6", min.pct = 0.25)
+print(x = head(x = cluster6.markers, n = 500))
+
+cluster2.markers<-FindMarkers(object=organoids.combined, ident.1 ="2", ident.2 = c("0","1", "3", "4", "5", "6", "7"), min.pct=0.25)
+#Will look for markers that distinguish cluster 2 from all others
+
+organoids.combined.markers <- FindAllMarkers(object = organoids.combined, only.pos = TRUE, min.pct = 0.25, thresh.use = 0.25)
+write.csv(organoids.combined.markers,"20190222_CCA_resolution2_0_13pops_organoidscombinedmarkers.csv")
+organoids.combined.markers %>% group_by(cluster) %>% top_n(6, avg_logFC)
+topmarkers<-organoids.combined.markers %>% group_by(cluster) %>% top_n(6, avg_logFC)
+#modify number after top_n to print this many markers
+
+cluster0.markers<-FindMarkers(object=organoids.combined, ident.1 ="0", ident.2 = c("1","2", "3", "4", "5", "6", "7"), min.pct=0.25)
+write.csv(organoids.combined.markers,"20190219_CCA_resolution0_8_8pops_organoidscombinedmarkersPOP0.csv")
+
+
+```
+```{r heatmap of top population markers}
+DoHeatmap(object = organoids.combined, genes.use = organoids.combined.markers$gene, slim.col.label = TRUE, remove.key = FALSE, group.label.rot = 45, cex.row =5, group.cex =7.5)
+AllMaRKERHM20190213<-DoHeatmap(object = organoids.combined, genes.use = organoids.combined.markers$gene, slim.col.label = TRUE, remove.key = FALSE, group.label.rot = 45, cex.row =1, group.cex =7.5)
+PopulationsMaRKERHM20190213<-DoHeatmap(object = organoids.combined, genes.use = topmarkers$gene, slim.col.label = TRUE, remove.key = FALSE, group.label.rot = 45, cex.row =5, group.cex =7.5)
+DoHeatmap(object = organoids.combined, genes.use = Lit, slim.col.label = TRUE, remove.key = FALSE, group.label.rot = 45, cex.row =5, group.cex =7.5)
+
+#This might give me a good idea of overclustering/biological similarities of populations
+#Change cex.row = number for larger gene names although there are so many they will be unreadable, this list pertains to all the find.markers, organoids.combined.markers or "organoidscombinedmarkers.csv"
+```
+
+```{r use megaplot code  to look at top 6 markers per pop 0}
+#Population 0
+topmarkers<-organoids.combined.markers %>% group_by(cluster) %>% top_n(6, avg_logFC)
+genelols<-topmarkers$gene[1:6]
+#Substitute gene of interest or dataframe/vector, note that this may be problematic because vlns and splitdotplots may call on the objects differently ie giving me the wrong order of genes
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45)
+d<-FeaturePlot(object = organoids.combined, features.plot =genelols, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+f<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+#Test new genes for all plots
+```
+#No obvious result on enrichr for Pop 0 population markers
+###Stopped here 02/07 5:17. Should work through validating gene list in 3 pops.
+
+
+```{r cowplot for making arranged graphs pop 0}
+Pop0<-plot_grid(a,b,c,e,f, labels = c("A", "B","C","D","E"), align = "v")
+save_plot("20190213Pop0.png", Pop0, 
+          ncol = 3, 
+          nrow = 3,
+          base_aspect_ratio = 1.6)
+#For some reason it wont read out d, the featureplot, into the cowplot, fine for now!
+```
+```{r investigate overlap between DCN and GCP, note updated font size allows for more genes at clearer resolution}
+gcpdcn<-c("PNOC", "TCF7L2", "GAD1", "GAD2", "LHX9", "TMEM163", "MEIS2", "LHX2", "LHX9", "GREM2", "GNG8", "EVX1")
+gcpdcn2<-c("PAX6", "ATOH1", "MEIS1", "NCAM1", "DCX", "STMN2", "GAP43", "BARHL1", "SELM", "PPP2R2C", "MFAP4", "NEUROD1")
+
+#Substitute gene of interest or dataframe/vector
+a<-VlnPlot(object=organoids.combined, features.plot = gcpdcn2, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use  =7, size.x.use =5 , size.y.use = 5)
+b<-VlnPlot(object=organoids.combined, features.plot = gcpdcn2, group.by = "res.0.8", do.return = TRUE, x.lab.rot = 45, size.title.use  =7, size.x.use =5 , size.y.use = 5)
+#This is how I can pump out violins with population at different resolution, nice!
+
+
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+f<-FeaturePlot(object = organoids.combined, features.plot =genelols, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 3)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+#Test new genes for all plots
+```
+
+
+```{r use megaplot code  to look at top 6 markers per pop 1}
+#Population 1
+topmarkers<-organoids.combined.markers %>% group_by(cluster) %>% top_n(6, avg_logFC)
+genelols<-topmarkers$gene[7:12]
+#Substitute gene of interest or dataframe/vector
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+f<-FeaturePlot(object = organoids.combined, features.plot =genelols, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 3)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+#Test new genes for all plots
+```
+#No obvious result on enrichr for Pop 1 population markers
+```{r cowplot for making arranged graphs pop 1b}
+Pop1<-plot_grid(a,b,c,d,e, labels = c("A", "B","C","D","E"), align = "v")
+save_plot("20190117Pop1.png", Pop1, 
+          ncol = 3, 
+          nrow = 3,
+          base_aspect_ratio = 1.6)
+#For some reason it wont read out d, the featureplot, into the cowplot, fine for now! I think I can rectify this if I make single featureplots and them cowplot them into a 2x3 grid and try and incorporate that
+```
+
+```{r use megaplot code  to look at top 6 markers per pop 2b}
+#Population 2
+topmarkers<-organoids.combined.markers %>% group_by(cluster) %>% top_n(6, avg_logFC)
+genelols<-topmarkers$gene[13:18]
+#Substitute gene of interest or dataframe/vector
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+f<-FeaturePlot(object = organoids.combined, features.plot =genelols, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 3)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+#Test new genes for all plots
+```
+#No obvious result on enrichr for Pop 1 population markers
+```{r cowplot for making arranged graphs pop 1}
+Pop2<-plot_grid(a,b,c,d,e, labels = c("A", "B","C","D","E"), align = "v")
+save_plot("20190117Pop2.png", Pop2, 
+          ncol = 3, 
+          nrow = 3,
+          base_aspect_ratio = 1.6)
+#For some reason it wont read out d, the featureplot, into the cowplot, fine for now! I think I can rectify this if I make single featureplots and them cowplot them into a 2x3 grid and try and incorporate that
+```
+
+```{r use megaplot code  to look at top 6 markers per pop 2}
+#Population 2
+topmarkers<-organoids.combined.markers %>% group_by(cluster) %>% top_n(6, avg_logFC)
+genelols<-topmarkers$gene[13:18]
+#Substitute gene of interest or dataframe/vector
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+FeaturePlot(object = organoids.combined, features.plot =genelols, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+#Test new genes for all plots
+```
+
+```{r cowplot for making arranged graphs pop 2 }
+Pop2<-plot_grid(a,b,c,d,e, labels = c("A", "B","C","D","E"), align = "v")
+save_plot("20190117Pop2.png", Pop2, 
+          ncol = 3, 
+          nrow = 3,
+          base_aspect_ratio = 1.6)
+#For some reason it wont read out d, the featureplot, into the cowplot, fine for now!
+```
+#Interesting  result on enrichr for Pop 2 population markers; ABA up; Hits Lingula (I), Lingula (I) granular layer, r1 roof plate, periventricular stratum of Apal, Lingula(I) Molecular layer, Nodulus (X). Should extract genes to compute lists and run them through megaplot code.
+```{r use megaplot code  to look at enrichr markers in pop 2}
+#Population 2 - enrichr
+enrichrpop2lingula<-c("LGALS3BP","CD63", "KCNJ13", "RPLP0", "ATP11C", "SPINT2", "ZFP36L2", "BCAM", "KRT18", "TTR", "NPC2", "RBP1", "SERPINH1", "ID3", "CD9", "IGFBP7", "FOLR1","RPS10")
+FeaturePlot(object = organoids.combined, features.plot =enrichrpop2lingula[1:9], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+FeaturePlot(object = organoids.combined, features.plot =enrichrpop2lingula[10:18], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+SplitDotPlotGG(organoids.combined, genes.plot = rev(enrichrpop2lingula), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+```
+
+```{r use megaplot code  to look at top 6 markers per pop 3}
+#Population 3
+topmarkers<-organoids.combined.markers %>% group_by(cluster) %>% top_n(6, avg_logFC)
+genelols<-topmarkers$gene[19:24]
+#Substitute gene of interest or dataframe/vector
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+FeaturePlot(object = organoids.combined, features.plot =genelols, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+#Test new genes for all plots
+```
+
+```{r cowplot for making arranged graphs pop 3}
+Pop3<-plot_grid(a,b,c,d,e, labels = c("A", "B","C","D","E"), align = "v")
+save_plot("20190117Pop3.png", Pop3, 
+          ncol = 3, 
+          nrow = 3,
+          base_aspect_ratio = 1.6)
+#For some reason it wont read out d, the featureplot, into the cowplot, fine for now!
+```
+#Interesting  result on enrichr for Pop 3 population markers; ABA up; Hits Dorsomedial nucleus of the hypothalamus, posterior part, Paramdeium lobule, molecular layer, rhombomere 1, Paramedia lobule. Should extract genes to compute lists and run them through megaplot code.
+```{r use megaplot code  to look at enrichr markers in pop 3 ENRICHR}
+#Population 3 - enrichr
+enrichrpop3rhombomere1ANDparamedianlobuleML<-c("GDF10", "PTPRZ1", "MDK", "RFX4", "ZIC1", "PAX3", "PEX10", "VIM", "ZFP36L1")
+FeaturePlot(object = organoids.combined, features.plot =enrichrpop3rhombomere1ANDparamedianlobuleML, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(enrichrpop3rhombomere1ANDparamedianlobuleML), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+```
+
+```{r use megaplot code  to look at top 6 markers per pop 4}
+#Population 4
+topmarkers<-organoids.combined.markers %>% group_by(cluster) %>% top_n(6, avg_logFC)
+genelols<-topmarkers$gene[25:30]
+#Substitute gene of interest or dataframe/vector
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+FeaturePlot(object = organoids.combined, features.plot =genelols, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+#Test new genes for all plots
+```
+
+```{r cowplot for making arranged graphs pop 4}
+Pop4<-plot_grid(a,b,c,d,e, labels = c("A", "B","C","D","E"), align = "v")
+save_plot("20190117Pop4.png", Pop4, 
+          ncol = 3, 
+          nrow = 3,
+          base_aspect_ratio = 1.6)
+#For some reason it wont read out d, the featureplot, into the cowplot, fine for now!
+```
+#Interesting  result on enrichr for Pop 4 population markers; ABA up; Hits r1 roof plate, (others), Lingula (I) molecular layer. Should extract genes to compute lists and run them through megaplot code.
+```{r use megaplot code  to look at enrichr markers in pop 4 ENRICHR}
+#Population 4 - enrichr
+enrichrpop4r1roofplate<-c("PDIA3", "LGALS3BP", "CD63", "RBM47", "CD82", "EPHX1", "ATP11C", "ATOX1", "HRSP12", "TTR", "NPC2", "CD9","PLTP", "ALDH7A1", "WLS")
+#"C21ORF62" not found, grep this?
+FeaturePlot(object = organoids.combined, features.plot =enrichrpop4r1roofplate[1:8], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+FeaturePlot(object = organoids.combined, features.plot =enrichrpop4r1roofplate[9:15], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(enrichrpop4r1roofplate), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+```
+
+```{r use megaplot code  to look at top 6 markers per pop 5}
+#Population 5
+topmarkers<-organoids.combined.markers %>% group_by(cluster) %>% top_n(6, avg_logFC)
+genelols<-topmarkers$gene[31:36]
+#Substitute gene of interest or dataframe/vector
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+FeaturePlot(object = organoids.combined, features.plot =genelols, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+#Test new genes for all plots
+```
+
+```{r cowplot for making arranged graphs pop 5}
+Pop5<-plot_grid(a,b,c,d,e, labels = c("A", "B","C","D","E"), align = "v")
+save_plot("20190117Pop5.png", Pop5, 
+          ncol = 3, 
+          nrow = 3,
+          base_aspect_ratio = 1.6)
+#For some reason it wont read out d, the featureplot, into the cowplot, fine for now!
+```
+#Population 5 hits others and Lingula (will not plot at the moment)
+```{r use megaplot code  to look at top 6 markers per pop 6}
+#Population 6
+topmarkers<-organoids.combined.markers %>% group_by(cluster) %>% top_n(6, avg_logFC)
+genelols<-topmarkers$gene[37:42]
+#Substitute gene of interest or dataframe/vector
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+FeaturePlot(object = organoids.combined, features.plot =genelols, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+#Test new genes for all plots
+```
+
+```{r cowplot for making arranged graphs pop 6}
+Pop6<-plot_grid(a,b,c,d,e, labels = c("A", "B","C","D","E"), align = "v")
+save_plot("20190117Pop6.png", Pop6, 
+          ncol = 3, 
+          nrow = 3,
+          base_aspect_ratio = 1.6)
+#For some reason it wont read out d, the featureplot, into the cowplot, fine for now!
+```
+#Enrichr didnt reveal anything interesting in population 6 - dorsal peduncular cortex? 
+##########################
+#Here I will try and make my cowplots more efficient by dividing them into two parts ie by making a cowplot that has 2x3 tsne (because cowplot cant handle multiple featureplots), then I pipe that into a second cowplot that has the simpler splitdotplots and violins
+20190124
+```{r cowplot for making arranged feature plots start with pop0}
+#Note every time I run this series I will need to ammend numbers in the code to point to the right genelols genes and also the plot numbers/file numbers
+genelols<-topmarkers$gene[1:6]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop0<-plot_grid(f1$STMN2,f2$MLLT11,f3$SOX4,f4$DCX,f5$GAP43,f6$TCF7L2, align = "v")
+save_plot("20190123tSNEPop0.png", FPPop0, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.6)
+
+genelols<-topmarkers$gene[1:6]
+#Substitute gene of interest or dataframe/vector
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+#cowplot try and chain together the stitched features and the splits and violins pop 0
+Megapop<-plot_grid(a,b,c,d,e,FPPop0, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190213tSNEplusmegaPop0.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+#this works really well, I have to make the stitched features first and then add them in
+#I could potentially try and automate this
+#The labelling of figures still clips some figures and I cant figure out how to reduce the size of the legends
+
+```
+
+```{r cowplot for making arranged feature plots start with pop1}
+genelols<-topmarkers$gene[7:12]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop1<-plot_grid(f1$FTL,f2$SQSTM1,f3$DDIT3,f4$HSPA5,f5$PMCH,f6$CRYAB, align = "h")
+#Note this is not necessary but will save an extra 2x3 png plot of the tsne
+save_plot("20190124tSNEPop01.png", FPPop1, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+#Substitute gene of interest or dataframe/vector
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+Megapop<-plot_grid(a,b,c,d,e,FPPop1, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190124tSNEplusmegaPop1.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+
+```
+
+```{r cowplot for making arranged feature plots start with pop2}
+genelols<-topmarkers$gene[13:18]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop2<-plot_grid(f1$TRPM3,f2$PCP4,f3$CXCL14,f4$IGFBP7,f5$TTR,f6$PMCH, align = "h")
+save_plot("20190213tSNEPop02.png", FPPop2, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+Megapop<-plot_grid(a,b,c,d,e,FPPop2, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190213tSNEplusmegaPop2.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+```
+
+```{r cowplot for making arranged feature plots start with pop3}
+genelols<-topmarkers$gene[19:24]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop3<-plot_grid(f1$GPM6B,f2$PTN,f3$VIM,f4$C1orf61,f5$TTYH1,f6$PLP1, align = "h")
+save_plot("20190124tSNEPop03.png", FPPop3, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+Megapop<-plot_grid(a,b,c,d,e,FPPop3, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190213tSNEplusmegaPop3.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+```
+
+```{r cowplot for making arranged feature plots start with pop4}
+genelols<-topmarkers$gene[25:30]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop4<-plot_grid(f1$RSPO2,f2$PLS3,f3$MASP1,f4$CNTNAP2,f5$IFITM3,f6$NMU, align = "h")
+save_plot("20190124tSNEPop04.png", FPPop4, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+Megapop<-plot_grid(a,b,c,d,e,FPPop4, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190213tSNEplusmegaPop4.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+```
+
+```{r cowplot for making arranged feature plots start with pop5}
+genelols<-topmarkers$gene[31:36]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop5<-plot_grid(f1$NUSAP1,f2$TOP2A,f3$UBE2C,f4$HMGB2,f5$PTTG1,f6$HIST1H4C, align = "h")
+#This line not necessary but will save separate png of tsne 2x3
+save_plot("20190124tSNEPop01.png", FPPop1, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+Megapop<-plot_grid(a,b,c,d,e,FPPop5, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190213tSNEplusmegaPop5.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+```
+
+```{r cowplot for making arranged feature plots start with pop6}
+genelols<-topmarkers$gene[37:42]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop6<-plot_grid(f1$ANXA2,f2$SPARCL1,f3$TPBG,f4$RBP1,f5$CYP1B1,f6$IFITM3, align = "h")
+save_plot("20190124tSNEPop06.png", FPPop6, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+#Substitute gene of interest or dataframe/vector
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+Megapop<-plot_grid(a,b,c,d,e,FPPop6, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190213tSNEplusmegaPop6.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+#this works really well, I have to make the stitched features first and then add them in
+#I could potentially try and automate this
+#The labelling of figures still clips some figures and I cant figure out how to reduce the size of the legends
+
+```
+```{r cowplot for making arranged feature plots start with pop 7}
+genelols<-topmarkers$gene[43:48]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop7<-plot_grid(f1$CFAP126,f2$C1orf194,f3$TPPP3,f4$PIFO,f5$IGFBP7,f6$TTR, align = "h")
+save_plot("20190124tSNEPop07.png", FPPop6, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+#Substitute gene of interest or dataframe/vector
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+Megapop<-plot_grid(a,b,c,d,e,FPPop6, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190213tSNEplusmegaPop7.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+#this works really well, I have to make the stitched features first and then add them in
+#I could potentially try and automate this
+#The labelling of figures still clips some figures and I cant figure out how to reduce the size of the legends
+
+```
+```{r test EBs collab top genes}
+#EBCollab<-c("GABRA6","ENO2","SYT7","CAPS2", "RAB34")
+#FeaturePlot(object = organoids.combined, features.plot = EBCollab, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#FeaturePlot(object = organoids.combined, features.plot = EBCollab, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#SplitDotPlotGG(organoids.combined, genes.plot = rev(EBCollab), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+#SplitDotPlotGG(organoids.combined, genes.plot = rev(EBCollab), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+```
+
+#What exactly are the major canonical correlate genes telling me? Try them in a feature plot
+```{r featureplot want to test cc genes}
+FeaturePlot(object = organoids.combined, features.plot = c("RPL41", "RPS6", "RPLP1", "RPL36", "RPS28", "SPARC", "RPS20", "RPL12"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r featureplot want to test cc genes2}
+FeaturePlot(object = organoids.combined, features.plot = c("RPS14", "RPL8", "DCX","TUBB2A", "SOX4","MLLT11","STMN2",  "MAP1B"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r featureplot want to test cc genes3}
+FeaturePlot(object = organoids.combined, features.plot = c("TUBA1A", "TUBB2B", "ELAVL3", "GAP43", "TUBB2B", "ELAVL3", "GAP43", "SLC3A2"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r featureplot want to test cc genes4}
+FeaturePlot(object = organoids.combined, features.plot = c("TMBIM6","SQSTM1", "HSPA5","HSP90B1","PDIA3","CLU","PSAP", "B2M","CD63","RPL10"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r featureplot want to test cc genes5}
+FeaturePlot(object = organoids.combined, features.plot = c("RPL34","RPS8","RPL32","RPL4","RPL14","RPS23","RPL5",  "RPL18A","RPS4X"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r featureplot conserved cell type markers that I recognize}
+#("S100A11", "PCP4", "SPARC", "FABP7", "NCAM1", "DCX", "NEAT1", "GRM8", "ALDOA", "MIAT", "SOX11", "SEMA6A", "NFIB", "SOX2", "CNTNAP2", "MALAT1", "VIM", "NNAT", "TTR"), 
+#Markers that stick out, of interest, this is too long of a list to give a proper tsne readout
+```
+
+```{r featureplot conserved cell type markers that I recognize 2}
+FeaturePlot(object = organoids.combined, features.plot = c("S100A11", "PCP4", "SPARC", "FABP7", "NCAM1", "DCX"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#Markers that stick out, of interest
+```
+ 
+```{r featureplot conserved cell type markers that i recognize3}
+FeaturePlot(object = organoids.combined, features.plot = c("NEAT1", "GRM8", "ALDOA", "MIAT", "SOX11", "SEMA6A"), min.cutoff = "q9", cols.use = c("lightgrey", 
+    "blue"), pt.size = 0.5)
+```
+
+```{r featureplot conserved cell type markers that I recognize 4}
+FeaturePlot(object = organoids.combined, features.plot = c("NFIB", "SOX2", "CNTNAP2", "VIM", "NNAT", "TTR"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r featureplot conserved cell type markers5}
+FeaturePlot(object = organoids.combined, features.plot = c("WDR38", "C11orf88", "FAM216B","TCTEX1D4","ANKRD66","RP11-295M3.4"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#This is the top six entries, I need to figure out how this list is organized ie which populations are being marked.
+```
+
+```{r featureplot conserved cell type markers 6}
+FeaturePlot(object = organoids.combined, features.plot = c("CAPSL", "CFAP157", "CFAP126", "TCTEX1D1","MAP3K19", "AKAP14"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r featureplot conserved cell type markers 7}
+FeaturePlot(object = organoids.combined, features.plot = c("TEKT1", "FAM183A", "FAM81B","ROPN1L","SMIM5","ODF3B","SPAG6","OMG", "DNAAF1"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+
+#```{r featureplot conserved cell type markers 8}
+#FeaturePlot(object = organoids.combined, features.plot = c(), min.cutoff = "q9", cols.use = #c("lightgrey", "blue"), pt.size = 0.5)
+#```
+
+#```{r featureplot conserved cell type markers xx}
+#FeaturePlot(object = organoids.combined, features.plot = c(), min.cutoff = "q9", cols.use = #c("lightgrey", "blue"), pt.size = 0.5)
+#```
+
+#Have a look at fave genes
+```{r fave genes 0}
+FeaturePlot(object = organoids.combined, features.plot = c("CALB1", "PAX6", "TTR", "FABP7", "ATOH1", "KIRREL2"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+#```{r fave genes 1}
+#FeaturePlot(object = organoids.combined, features.plot = c("GBX2", "FGF19", "EN2", "CXCL12", #"RELN", "PTCH1", "TBR1", "SHH"), min.cutoff = "q9", cols.use = c("lightgrey", #"blue"),pt.size = 0.5)
+#```
+
+```{r fave genes 2}
+FeaturePlot(object = organoids.combined, features.plot = c("RBFOX3", "CNTNAP2", "GRM1", "FOXP2", "CNTN2", "GFAP"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r fave genes 3}
+FeaturePlot(object = organoids.combined, features.plot = c( "OTX2", "ISL1", "DCX", "MKI67", "PTF1A", "FGF8"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+#Check Muguruma genes
+```{r fave genes 4 MUGURUMA}
+FeaturePlot(object = organoids.combined, features.plot = c("OLIG2", "GSX1", "PDGFRA", "FOXO4", "LHX5", "GRID2", "CBLN1", "NRGN", "PVALB", "NEFH"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r fave genes 4 MUGURUMA/ERCEG/NAYLER}
+FeaturePlot(object = organoids.combined, features.plot = c("GDF7", "BMP4", "BMP2", "JAG1", "BARHL1", "MEIS1", "LHX2", "MAP2", "ATM"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+#```{r fave genes 4}
+#FeaturePlot(object = organoids.combined, features.plot = c(), min.cutoff = "q9", cols.use = #c("lightgrey", "blue"), pt.size = 0.5)
+#```
+
+#Check genes from Carter et al., 2018 mouse developmental time series Cellseeks
+
+```{r Carter et al genes}
+FeaturePlot(object = organoids.combined, features.plot = c("HES5", "SLC1A3", "PAX6", "MEIS2", "LHX5", "CALB1", "PAX2", "SOX2"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r random neurotransmitters}
+FeaturePlot(object = organoids.combined, features.plot = c("SLC17A6", "GABARAP"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r list from carter et al fig 2C/D}
+#MAJOR LIST FROM FIGURE 2C
+
+carterlist<-c("SPARC", "NES", "ID1", "ID3", "HES5", "MSX1", "TMEM163", "MEIS2", "LHX2", "LHX9", "GREM2", "GNG8", "EVX1", "SELM", "PAX6", "MFAP4", "NEUROD1", "ATOH1", "BARHL1", "PPP2R2C", "TLX3", "LHX5", "LHX1", "GAD2", "GAD1", "FOXP2", "GM27199", "SLC32A1", "CALB1", "RORA", "PAX2", "LBX1", "OPTC", "ALDH1L1", "ALDOC", "HOPX", "TIMP4", "NDRG2", "GDF10", "SOX9", "SOX10", "SLC1A3", "SPARCL1", "VTN", "BGN", "FOXC1", "CLDN5", "IGFBP7", "VAMP5", "CLEC1B", "CD34", "PECAM1", "DYNLRB2", "MEI1", "DCN", "SLC6A13", "COL3A1", "COL1A2", "KRT18", "COLEC12", "RSPO1", "CAMBI", "HBA-A2", "ALAS2", "HBB-BT","FECH", "LY86", "FCER1G", "TMEM119", "ITGAM", "OLIG1", "MATN4", "ISL1", "SNCG", "DLK1", "LMX1A")
+
+#(NOT INCLUDED MSX3, PCP2, CAR8 - NO ORTHOLOGUES?)
+#TRY HEATMAP WITH (not sure if id is organoid or cluster). Think it is per cluster so could be a good way to ID clusters non-manually!
+DoHeatmap(object = organoids.combined, genes.use = carterlist, slim.col.label = TRUE, remove.key = TRUE, cex.row =6, group.cex=10)
+#This is super interesting as Cluster 0 seems to heavily hit both Glutamatergic CN and GNPs/GCs and some of Gabaergic progenitors also. There seems to be some enrichment in clusters 1 on wards for progenitor genes
+```
+
+#```{r pressure, echo=FALSE, fig.cap="A caption", out.width = '100%'}
+#knitr::include_graphics("Carter2CD.png")
+#```
+
+#Check genes from human whole brain/cerebellum autopsy Lake et al.., 2018
+
+```{r fave genes lake}
+FeaturePlot(object = organoids.combined, features.plot = c("SLC17A7","SATB2","GRM4","GAD1","DUSP1","COBLL1","PDGFRB"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r fave genes 5}
+FeaturePlot(object = organoids.combined, features.plot = c("SLC1A2","SLC4A4","MOBP","CBLN2","RASGRF2","COL5A2","GLIS3","CUX2"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r fave genes 6}
+FeaturePlot(object = organoids.combined, features.plot = c("NEFM","RORB","PHACTR2","EYA4","IL1RAPL2","TSHZ2","FOXP2"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r fave genes 7}
+FeaturePlot(object = organoids.combined, features.plot = c("PCP4","PDE1C","HS3ST2","HS3ST5","TLE4","NR4A2","RELN"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r fave genes 8}
+FeaturePlot(object = organoids.combined, features.plot =c("RBFOX3","SORCS3","GAD2","RYR1","NXPH1","IGFBP7","B2M"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r fave genes 9}
+FeaturePlot(object = organoids.combined, features.plot = c("CEMIP","PPFIBP1","GPC5","GRIA1","SLC1A3","PLP1","MBP"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r fave genes 10}
+FeaturePlot(object = organoids.combined, features.plot = c("LUZP2","PCDH15","ORAOV1","LRP6","APBB1IP"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+#Manual curation of tidy genes for cell markers (work in progress) NOTE I should make a dataframe to store this info!
+```{r Potential Purkinje genes}
+FeaturePlot(object = organoids.combined, features.plot = c("CALB1", "CALB2", "KIRREL2", "PCP4", "ALDOC", "GRID2", "ITPR1", "RORA", "FOXP2"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+SplitDotPlotGG(organoids.combined, genes.plot = c("CALB1", "CALB2", "KIRREL2", "PCP4", "ALDOC", "GRID2", "ITPR1", "RORA", "FOXP2"), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+#Purkinjes
+```
+
+#What about trying to view the featureplots and splitdotplots for the same markers next to each other
+```{r try and automate a plot with dataframe2}
+MarkersDF2<-read.csv("~/Desktop/bsg-ftp.well.ox.ac.uk/Sams Analysis/20190111CellTypeMarkers.csv")
+#Point to data.frame location
+sdp4<- SplitDotPlotGG(organoids.combined, genes.plot = rev(MarkersDF2[1:4,1]), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+#OR point to factor made from dataframe with location
+sdp4<- SplitDotPlotGG(organoids.combined, genes.plot = rev(markers.to.plot2), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+
+#What does attach(dataframe) do? 
+```
+
+```{r Potential Granule cell genes}
+FeaturePlot(object = organoids.combined, features.plot = c("ATOH1", "PAX6", "CNTN2", "MKI67", "DCX", "NCAM1", "BARHL1", "MEIS1", "ZIC1", "NEUROD1"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+SplitDotPlotGG(organoids.combined, genes.plot = c("ATOH1", "PAX6", "CNTN2", "MKI67", "DCX", "NCAM1", "BARHL1", "MEIS1", "ZIC1", "NEUROD1"), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+#Granule cells
+```
+
+
+```{r Potential Bergmann glia genes}
+FeaturePlot(object = organoids.combined, features.plot = c("FABP7", "HOPX", "GDF10", "VIM"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#Bergmann glia
+```
+
+```{r Potential Interneuron genes}
+FeaturePlot(object = organoids.combined, features.plot = c("PVALB", "SST"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#Interneurons
+```
+
+```{r Potential Golgi genes}
+FeaturePlot(object = organoids.combined, features.plot = c("NRGN"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#Golgi cells
+```
+
+#```{r Potential Basket cell genes}
+#FeaturePlot(object = organoids.combined, features.plot = c(), min.cutoff = "q9", cols.use = #c("lightgrey", "blue"), pt.size = 0.5)
+#```
+
+#```{r Potential Unipolar brush cell genes}
+#FeaturePlot(object = organoids.combined, features.plot = c(), min.cutoff = "q9", cols.use = #c("lightgrey", "blue"), pt.size = 0.5)
+#```
+
+```{r Potential astrocyte genes}
+FeaturePlot(object = organoids.combined, features.plot = c("SLC1A3"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+FeaturePlot(object = organoids.combined, features.plot = c("S100B"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+FeaturePlot(object = organoids.combined, features.plot = c("GFAP"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+FeaturePlot(object = organoids.combined, features.plot = c("GLUL"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+FeaturePlot(object = organoids.combined, features.plot = c("GRIA4"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+FeaturePlot(object = organoids.combined, features.plot = c("GRIA1"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#Astrocytes
+```
+
+```{r Potential roof plate genes}
+FeaturePlot(object = organoids.combined, features.plot = c("LMX1A", "MSX1"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#Roof plate genes
+```
+
+```{r Potential precursor genes}
+FeaturePlot(object = organoids.combined, features.plot = c("KIRREL2", "HES5", "ATOH1", "SOX2", "MAP2", "ID1"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#Precursor genes
+```
+
+```{r Potential glutamatergic CNs genes}
+FeaturePlot(object = organoids.combined, features.plot = c("MEIS2", "LHX2", "SLC17A6"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#Glutamatergic CNs
+```
+
+```{r Potential GABAERGIC progenitors genes}
+FeaturePlot(object = organoids.combined, features.plot = c("LHX5", "LHX1", "GABARAP"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#GABAergic progenitors
+```
+
+
+```{r Potential GABAERGIC interneuron genes}
+FeaturePlot(object = organoids.combined, features.plot = c("PAX2", "LBX1"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#Gabaergic interneurons
+```
+
+```{r Potential Oligodendrocyte genes}
+FeaturePlot(object = organoids.combined, features.plot = c("OLIG1", "OLIG2"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#Oligodendrocytes
+```
+
+```{r Potential Microglia genes}
+FeaturePlot(object = organoids.combined, features.plot = c("TMEM119"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#Microglia
+```
+
+```{r Potential Choroid Plexus genes}
+FeaturePlot(object = organoids.combined, features.plot = c("TTR", "KRT18", "KCNJ13"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#Choroid
+```
+```{r Genes for EB}
+FeaturePlot(object = organoids.combined, features.plot = c("KIRREL2", "CALB1", "GRM1", "RORA", "PCP4", "TRPC3", "ITPR1", "CNTNAP2", "ALDOC", "FOXP2"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r subset organoids}
+# How am I going to 'subset' the organoids to look at the proportions of cells in each? 
+#Conduct a test to see what factors I can use to separate, stim works v 
+#FeaturePlot(object = organoids.combined@meta.data$hash_maxID, features.plot = c("TMEM119"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#VlnPlot(object=organoids.combined, features.plot = "FABP7", group.by = "hash_maxID", do.return = TRUE)
+#THIS WORKS!
+```
+
+```{r subset organoids by hash_maxID as groups to look at Bergmann glia population markers}
+VlnPlot(object=organoids.combined, features.plot = "FABP7", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "HOPX", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "GDF10", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "SLC1A3", group.by = "hash_maxID", do.return = TRUE)
+#Note I can also sort in descening order instead of catalog order by adding do.sort=TRUE
+VlnPlot(object=organoids.combined, features.plot = "SLC1A3", group.by = "hash_maxID", do.return = TRUE, do.sort=TRUE)
+#Bergmann
+```
+
+```{r subset organoids by hash_maxID as groups to look at general precursor markers}
+VlnPlot(object=organoids.combined, features.plot = "SOX2", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "MAP2", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "ID1", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "HES5", group.by = "hash_maxID", do.return = TRUE)
+#Precurors
+```
+
+```{r subset organoids by hash_maxID as groups to look at astrocyte markers}
+VlnPlot(object=organoids.combined, features.plot = "SPARC", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "SLC1A3", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "S100B", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "GFAP", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "GLUL", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "GRIA4", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "GRIA1", group.by = "hash_maxID", do.return = TRUE)
+#Astrocytes
+```
+
+```{r subset organoids by hash_maxID as groups to look at GC population markers}
+VlnPlot(object=organoids.combined, features.plot = "PAX6", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "DCX", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "NCAM1", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "NFIB", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "NFIX", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "MEIS1", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "BARHL1", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "CNTN2", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "ATOH1", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "MKI67", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "ZIC1", group.by = "hash_maxID", do.return = TRUE)
+#Granule cells
+```
+
+```{r subset organoids by hash_maxID as groups to look at general population markers of PCs}
+VlnPlot(object=organoids.combined, features.plot = "CALB1", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "GRID2", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "FOXP2", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "PCP4", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "KIRREL2", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "ALDOC", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "CALB2", group.by = "hash_maxID", do.return = TRUE)
+#Purkinjes
+```
+
+```{r subset organoids by hash_maxID as groups to look at IN}
+VlnPlot(object=organoids.combined, features.plot = "SST", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "PVALB", group.by = "hash_maxID", do.return = TRUE)
+#General interneurons
+```
+
+```{r sub for golgi markers hash}
+VlnPlot(object=organoids.combined, features.plot = "NRGN", group.by = "hash_maxID", do.return = TRUE)
+#Golgi
+```
+
+```{r subset for general markers of interest0}
+VlnPlot(object=organoids.combined, features.plot = "TTR", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "ATM", group.by = "hash_maxID", do.return = TRUE)
+#General markers of interest
+```
+
+```{r subset for roof plate markers 0}
+VlnPlot(object=organoids.combined, features.plot = "LMX1A", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "MSX1", group.by = "hash_maxID", do.return = TRUE)
+#Roofplate
+```
+
+```{r subset for Glutamatergic CN}
+VlnPlot(object=organoids.combined, features.plot = "MEIS2", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "LHX2", group.by = "hash_maxID", do.return = TRUE)
+#Glutamatergic CN genes
+```
+
+```{r subset for Gabaergic progenitors}
+VlnPlot(object=organoids.combined, features.plot = "LHX1", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "LHX5", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "GABARAP", group.by = "hash_maxID", do.return = TRUE)
+#gabaergic progenitors
+```
+
+```{r subset for Gabaergic interneurons}
+VlnPlot(object=organoids.combined, features.plot = "PAX2", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "LBX1", group.by = "hash_maxID", do.return = TRUE)
+#gabaergic interneurons
+```
+
+```{r subset for Oligodendrocytes}
+VlnPlot(object=organoids.combined, features.plot = "OLIG1", group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "OLIG2", group.by = "hash_maxID", do.return = TRUE)
+#Oligodendrocytes
+```
+
+#Subset by group
+
+```{r subset organoids by stim as groups to look at Bergmann glia population markers}
+VlnPlot(object=organoids.combined, features.plot = "FABP7", group.by = "stim", do.return = TRUE)
+#Bergmann
+```
+
+```{r subset organoids by stim as groups to look at general precursor markers}
+VlnPlot(object=organoids.combined, features.plot = "SOX2", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "MAP2", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "ID1", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "HES5", group.by = "stim", do.return = TRUE)
+#Precurors
+```
+
+```{r subset organoids by stim as groups to look at astrocyte markers}
+VlnPlot(object=organoids.combined, features.plot = "SPARC", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "SLC1A3", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "S100B", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "GFAP", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "GLUL", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "GRIA4", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "GRIA1", group.by = "stim", do.return = TRUE)
+
+#Astrocytes
+```
+#Note it would be far better to make a dataframe to encapsulate cell type markers to pipe to rather than manually rework these plots
+```{r subset organoids by stim as groups to look at GC population markers}
+VlnPlot(object=organoids.combined, features.plot = "PAX6", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "DCX", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "NCAM1", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "NFIB", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "NFIX", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "MEIS1", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "BARHL1", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "CNTN2", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "ATOH1", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "MKI67", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "ZIC1", group.by = "stim", do.return = TRUE)
+#Granule cells
+```
+
+```{r subset organoids by stim as groups to look at general population markers of PCs}
+VlnPlot(object=organoids.combined, features.plot = "CALB1", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "GRID2", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "FOXP2", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "PCP4", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "KIRREL2", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "ALDOC", group.by = "stim", do.return = TRUE)
+#Purkinjes
+```
+
+```{r subset organoids by stim as groups to look at IN}
+VlnPlot(object=organoids.combined, features.plot = "SST", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "PVALB", group.by = "stim", do.return = TRUE)
+#General interneurons
+```
+
+
+```{r sub for golgi markers}
+VlnPlot(object=organoids.combined, features.plot = "NRGN", group.by = "stim", do.return = TRUE)
+#Golgi
+```
+
+```{r subset for general markers of interest}
+VlnPlot(object=organoids.combined, features.plot = "TTR", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "ATM", group.by = "stim", do.return = TRUE)
+#General markers of interest
+```
+
+```{r subset for roof plate markers}
+VlnPlot(object=organoids.combined, features.plot = "LMX1A", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "MSX1", group.by = "stim", do.return = TRUE)
+#Roofplate
+```
+
+```{r subset for Glutamatergic CN stim}
+VlnPlot(object=organoids.combined, features.plot = "MEIS2", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "LHX2", group.by = "stim", do.return = TRUE)
+#Glutamatergic CN genes
+```
+
+```{r subset for Gabaergic progenitors stim}
+VlnPlot(object=organoids.combined, features.plot = "LHX1", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "LHX5", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "GABARAP", group.by = "stim", do.return = TRUE)
+#gabaergic progenitors
+```
+
+```{r subset for Gabaergic interneurons stim}
+VlnPlot(object=organoids.combined, features.plot = "PAX2", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "LBX1", group.by = "stim", do.return = TRUE)
+#gabaergic interneurons
+```
+
+```{r subset for Oligodendrocytes stim}
+VlnPlot(object=organoids.combined, features.plot = "OLIG1", group.by = "stim", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = "OLIG2", group.by = "stim", do.return = TRUE)
+#Oligodendrocytes
+```
+
+```{r try a heatmap with subsetting by stim and or hash_maxID}
+DoHeatmap(object = organoids.combined, genes.use = carterlist, group.by = "stim", cex.row = 6,  slim.col.label = TRUE, remove.key = TRUE)
+DoHeatmap(object = organoids.combined, genes.use = carterlist, group.by = "hash_maxID", cex.row = 5, cex.col = 1, group.label.loc = "top", group.label.rot = TRUE, slim.col.label = TRUE, remove.key = TRUE)
+```
+
+```{r automation ,eval=F, echo=TRUE}
+for(n in seq(0,length(conservedlist),12)){ 
+init <- n+1
+f<-n+12 
+	if(f>(conservedlist)){ f<- (conservedlist)}
+print(paste("now plotting range [", init, ":",f,"]") )
+FeaturePlot(object = organoids.combined, features.plot =c(conservedlist[init:f]), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5) 
+}
+#This will plot all of the conservedmarkers in conservedlist 12 at a time so I can scroll through and look at ones that are in defined populations as a measure of good markers that are present in both stim/control
+```
+
+```{r FeatureHeatMap}
+FeatureHeatmap(organoids.combined, c("ATOH1", "PAX6", "PCP4", "CALB1", "KIRREL2"), group.by ="stim", sep.scale = T, pt.size = 0.7, cols.use = c('lightgrey', 'blue'))
+#This is a nice plot/piece of code that will be very useful!
+```
+
+```{r try the SplitDotPlotGG function }
+organoids.combined@ident<-factor(organoids.combined@ident, levels = (c("Population 0","Population 1","Population 2","Population 3","Population 4","Population 5","Population 6")))
+#Should replace/update these as I get more inclination about which cluster represents which cell type
+
+markers.to.plot<-c("PAX6","DCX", "NCAM1", "S100B", "GLUL", "SPARC", "CALB1", "PCP4", "ALDOC", "FABP7", "HOPX", "GDF10", "HES5", "SOX2", "ID1")
+
+sdp<- SplitDotPlotGG(organoids.combined, genes.plot = rev(markers.to.plot), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim") 
+#plot by condition (pooled organoids by treatment)
+
+sdp2<- SplitDotPlotGG(organoids.combined, genes.plot = rev(markers.to.plot), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+#plot by individual organoid
+```
+
+```{r SplitDotPlotGG function for GC/Ps}
+
+markers.to.plot2<- c("ATOH1", "PAX6", "CNTN2", "MKI67", "DCX", "NCAM1", "BARHL1", "MEIS1", "ZIC1", "NEUROD1")
+
+sdp3<- SplitDotPlotGG(organoids.combined, genes.plot = rev(markers.to.plot2), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+#I should actually use this as an opportunity to make a dataframe containing my cell-type specific marker info for automation of these
+```
+
+```{r cowplot for making arranged graphs 2}
+grid1<-plot_grid(sdp,sdp3, labels = c("A", "B"), align = "h")
+save_plot("plot1.png", grid1, 
+          ncol = 2, 
+          nrow = 1,
+          base_aspect_ratio = 1.3)
+
+```
+
+```{r try and automate a plot with dataframe}
+markers.to.plot3<-MarkersDF2[1:3,1]
+
+sdp3<- SplitDotPlotGG(organoids.combined, genes.plot = rev(markers.to.plot3), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+```
+
+```{r plot for Migration markers from Balaei/Marzban recent migration during cerebellum review}
+MarkersDF3<-read.csv("~/Desktop/bsg-ftp.well.ox.ac.uk/Sams Analysis/20190115CellTypeMarkers.csv")
+#Add strings as false here?
+sdp4<- SplitDotPlotGG(organoids.combined, genes.plot = rev(MigrationMarkers), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+#This works now - I reread in the dataframe, I did not use quotation marks and I also tried deleting any empty columns underneath but not sure if this ilicited the affect. The end column later edited runs into some problems...
+```
+
+```{r cowplot for making arranged graphs}
+grid1<-plot_grid(sdp,sdp3, labels = c("A", "B"), align = "h")
+save_plot("plot1.png", grid1, 
+          ncol = 2, 
+          nrow = 1,
+          base_aspect_ratio = 1.3)
+```
+
+```{r test megaplot code one gene}
+genelol<-c("KCNJ13")
+#Substitute gene of interest 
+VlnPlot(object=organoids.combined, features.plot = genelol, group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = genelol, group.by = "stim", do.return = TRUE)
+
+FeaturePlot(object = organoids.combined, features.plot =genelol, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+SplitDotPlotGG(organoids.combined, genes.plot = rev(genelol), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+SplitDotPlotGG(organoids.combined, genes.plot = rev(genelol), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+#Test new genes for all plots
+```
+
+
+```{r test megaplot code multigenes}
+#genelols<-c("TTR", "KRT18", "KCNJ13")
+#Substitute gene of interest or dataframe/vector
+VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE)
+
+FeaturePlot(object = organoids.combined, features.plot =genelols, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+#Test new genes for all plots
+```
+
+```{r test megaplot code with a dataframe OR vector for batch processing}
+#Use markers.to.plot5 - does not work violin/feature but does work for splitdotplots
+#VlnPlot(object=organoids.combined, features.plot = MarkersDF3[1:2,1], group.by = "hash_maxID", do.return = TRUE)
+#FeaturePlot(object = organoids.combined, features.plot =markers.to.plot5, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+MarkersDF3<-read.csv("~/Desktop/bsg-ftp.well.ox.ac.uk/Sams Analysis/20190115CellTypeMarkers.csv")
+BergmannMarkers<-MarkersDF3[1:5,1]
+
+SplitDotPlotGG(organoids.combined, genes.plot = rev(BergmannMarkers), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+SplitDotPlotGG(organoids.combined, genes.plot = rev(BergmannMarkers), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+
+PrecursorMarkers<-MarkersDF3[1:2,1]
+SplitDotPlotGG(organoids.combined, genes.plot = rev(PrecursorMarkers), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+SplitDotPlotGG(organoids.combined, genes.plot = rev(PrecursorMarkers), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID")
+#I should run through the rest of the markers for dataframes and maybe cowplot them all, still dont know why Migration column is not working
+#Test new genes for all plots
+#BergmannMarkers a "factor"" with 6 levels works.I made this with BergmannMarkers<-MarkersDF3[1:5,1]
+```
+
+```{r test megaplot code with list from Marzans recent review on neuronal migration in the cerebellum}
+#Migration markers in the cerebellum Marzan
+MarkersDF3<-read.csv("bsg-ftp.well.ox.ac.uk/Sams Analysis/20190118CellTypeMarkers.csv")
+MigrationMarkers<-MarkersDF3[1:12,14]
+VlnPlot(object=organoids.combined, features.plot = MigrationMarkers, group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = MigrationMarkers, group.by = "stim", do.return = TRUE)
+SplitDotPlotGG(organoids.combined, genes.plot = rev(MigrationMarkers), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+SplitDotPlotGG(organoids.combined, genes.plot = rev(MigrationMarkers), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+ MarkersDF4<-subset(MarkersDF3, select =-Migration )
+
+ #Lets try and add a column manuaklly with eg my.dataframe$new.col <- a.vector or in this case MarkersDF4new.col <-c(DCX,SHH), note I just tried two entries and anything up to length of the largest col will need to be filled with "NA"
+
+
+```
+```{r test megaplot code with list from Pengs recent scseq paper on P0/P8 mouse cerebellum}
+#Cell-type specific markers in the cerebellum Peng
+MarkersDFPENG<-read.csv("bsg-ftp.well.ox.ac.uk/Sams Analysis/20190130CellTypeMarkers.csv")
+PengMarkers<-MarkersDFPENG$PengP0P8Murine
+VlnPlot(object=organoids.combined, features.plot = (PengMarkers), group.by = "hash_maxID", do.return = TRUE)
+VlnPlot(object=organoids.combined, features.plot = PengMarkers, group.by = "stim", do.return = TRUE)
+#Note for some reason that probably has to do again with ggplot i cannot specify numbers for the violins but this is fine for the splitdotplots. There are too many genes to visualize on a plot
+
+#Note: Can also specify numbers of genes in this list for splitdotplogs (doesnt work for violin)
+#PengMarkers<-MarkersDFPENG$PengP0P8Murine[1:8]
+FeaturePlot(object = organoids.combined, features.plot =PengMarkers , pt.size = 0.5)
+FeaturePlot(object = organoids.combined, features.plot =c("HMGB3", "ERH") , pt.size = 0.5) #Peng found these TFs to regulate basket/stellate/golgi
+
+#Works but way too small, segment?
+
+SplitDotPlotGG(organoids.combined, genes.plot = rev(PengMarkers), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+SplitDotPlotGG(organoids.combined, genes.plot = rev(PengMarkers), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+#This has thrown an error again after manually entering gene names, i can try to grep or maybe to read out the organoids.combined@scale.data to a list to search manually
+grep("RBFOX3",organoids.combined@scale.data)
+#allgenes<-rownames(organoids.combined@scale.data)
+grep("FOXP2", allgenes) 
+#note: thhis was made earlier from organoids.combined@scale.data and is faster to grep/search
+```
+
+```{r featureplots to examine populations from Peng et al 2019}
+FeaturePlot(object = organoids.combined, features.plot = c("ATOH1","HEY1", "RBFOX3", "TPX2", "MKI67", "CNTN2", "TUBB3"), pt.size = 0.5)
+#Peng says atoh1 and hey1 are new GCs , rbfox3 generally markers gcs, tpx2 and mki67 mark prolferating gcs, cntn2 and tubb3 mark maturing gcs. `very good correlation/separation!
+FeaturePlot(object = organoids.combined, features.plot =PengMarkers , pt.size = 0.5)
+PengMarkers<-MarkersDFPENG$PengP0P8Murine
+FeaturePlot(object = organoids.combined, features.plot = c("GAD1", "CALB1", "IGF1", "ITPR1", "RORA", "SEMA3A", "SEMA4G", "SEMA6B", "SEMA7A", "NPPC", "NDNF", "PDGFA"), pt.size = 0.5)
+#PURKINJES
+
+FeaturePlot(object = organoids.combined, features.plot = c("SOX1", "SOX9"), pt.size = 0.5)
+#Bergmann glia/Astrocytes
+
+#Compare with TSNE
+TSNE20190124
+```
+
+
+```{r test megaplot code with list of Bergman glia markers}
+BergmannMarkers<-MarkersDF3[1:5,1]
+SplitDotPlotGG(organoids.combined, genes.plot = rev(BergmannMarkers), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+SplitDotPlotGG(organoids.combined, genes.plot = rev(BergmannMarkers), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = T, dot.scale = 4, do.return = T, grouping.var ="hash_maxID") 
+#Can I get markers.to.plot6 coerced into a way that I can also read it out in a featureplot?
+```
+
+```{r test fabs proportion code}
+colnames(organoids.combined@meta.data)
+test<-organoids.combined@meta.data %>% group_by(hash_maxID) %>% summarise(tot.per.sample=n())
+test
+ggplot(test, aes(hash_maxID,tot.per.sample, fill="stim"))
+
+ggplot(test, aes(hash_maxID,tot.per.sample) ) + geom_bar(stat = "identity", position = "dodge") + ggtitle("Cells yields") + theme(axis.text.x = element_text(angle=32, hjust=1))  #but needs more
+
+test2<-organoids.combined@meta.data %>% group_by(hash_maxID, res.0.6) %>% summarise(tot.per.cluster=n())
+ggplot(test2, aes(hash_maxID,tot.per.cluster) ) + geom_bar(stat = "identity", position = "dodge") + ggtitle("Cells yields in cluster 0") + theme(axis.text.x = element_text(angle=32, hjust=1))
+#This defaults to showing me the numbers of cells from all samples in cluster 0, how do i specify cluster 1,2,3 etc?
+ggplot(test2, aes(hash_maxID,tot.per.cluster[2]) ) + geom_bar(stat = "identity", position = "dodge") + ggtitle("Cells yields in cluster 0") + theme(axis.text.x = element_text(angle=32, hjust=1))
+#this may be right but I cannot tell as the axes/scalings are weird?
+
+
+test3<-organoids.combined@meta.data %>% group_by(hash_maxID, res.0.8) %>% summarise(tot.per.cluster=n())%>%
+  group_by(hash_maxID) %>%
+  mutate(tot.organoid.pt= sum(tot.per.cluster)) %>%
+  mutate(percent=100*tot.per.cluster/tot.organoid.pt)
+
+test3
+
+ggplot(test3, aes(hash_maxID, percent, fill=res.0.8)) +geom_bar(stat="identity", position="stack", colour ="black") + theme(axis.text.x = element_text(angle=32,hjust=1))
+
+#I can modifiy the number after res to present different numbers of pops
+
+
+test4<-organoids.combined@meta.data %>% group_by(stim, res.2) %>% summarise(tot.per.cluster=n())%>%
+  group_by(stim) %>%
+  mutate(tot.organoid.pt= sum(tot.per.cluster)) %>%
+  mutate(percent=100*tot.per.cluster/tot.organoid.pt)
+
+test4
+
+ggplot(test4, aes(stim, percent, fill=res.2)) +geom_bar(stat="identity", position="stack", colour ="black") + theme(axis.text.x = element_text(angle=32,hjust=1))
+
+#I need to think about how I could adapt this code to report on numbers of positive cells ie foxp2
+#If I load mtcars and run mt<-mtcars %>%group_by(mpg) %>% summarise(tot.per.mpg=n()), it will tell me how many instances of each integer
+#I may need to point to organoids.combined@scale.data to pull out genes and values or organoids.combined@var.genes
+str(organoids.combined@scale.data)
+rownames(organoids.combined@scale.data)
+grep("PCP4",organoids.combined@scale.data)
+
+```
+
+```{r cowplot for placing percentage graph next to tnse and heatmap}
+tsneandpctandhm<-plot_grid(poppct,PopMaRKERHM20190124,TSNE20190124, labels = c("A", "B","C"), align = "v")
+save_plot("20190124tsneheatmapandpct.png", tsneandpctandhm, 
+          ncol = 3, 
+          nrow = 3,
+          base_aspect_ratio = 1.6)
+```
+
+```{r how to go abount counting cells}
+#Following on from the above code where the populations are normalized to percengtages, a question has arisen regarding absolute numbers of cells within clusters/samples. After speaking with Fab, there is a very broad conceptual way to address this ie no 'right way' and I should think about ways to do this, including a few trials of genes that are expressed at different levels.
+
+#I should look up the code for multi-marker feature plots AND also see what I can find out about identifying individual cells expressing markers.
+
+VlnPlot(object=organoids.combined, features.plot = "FOXP2", group.by = "hash_maxID", do.return = TRUE)
+
+FeaturePlot(object = organoids.combined, features.plot = c("ATOH1", "PAX6", "CNTN2", "MKI67", "DCX", "NCAM1", "BARHL1", "MEIS1", "ZIC1", "NEUROD1"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+#Granule cells
+
+FeaturePlot(object = organoids.combined, features.plot = c("CALB1", "CALB2", "KIRREL2", "PCP4", "ALDOC", "GRID2", "ITPR1", "RORA", "FOXP2"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r try multi feature plots}
+#Note this is not quite what I set out to do but still potentially useful
+FeaturePlot(organoids.combined, features.plot = c("FOXP2", "CALB1"), min.cutoff = "q9",
+  dim.1 = 1, dim.2 = 2, pt.size = 1,
+  cols.use = c("grey", "blue"), pch.use = 16, overlay = FALSE,
+  do.hover = FALSE, data.hover = "ident", do.identify = FALSE,
+  reduction.use = "tsne", use.imputed = FALSE, nCol = NULL,
+  no.axes = FALSE, no.legend = TRUE, coord.fixed = FALSE,
+  dark.theme = FALSE, do.return = FALSE, vector.friendly = FALSE,
+  png.file = NULL, png.arguments = c(10, 10, 100))
+#Try this instead
+#The cols.use parameter indicate, respectively, low expression of both genes, high expression of first, high epxression of second, and high expression of both genes.
+FeaturePlot(object = organoids.combined,
+    features.plot = c("FOXP2", "CALB1"),
+    cols.use = c("grey", "blue", "red", "green"), 
+    reduction.use = "tsne",
+    overlay = TRUE)
+
+FeaturePlot(object = organoids.combined,
+    features.plot = c("ATOH1", "KIRREL2"),
+    cols.use = c("grey", "blue", "red", "green"), 
+    reduction.use = "tsne",
+    overlay = TRUE)
+FeaturePlot(object = organoids.combined,
+    features.plot = c("PCP4", "CALB1"),
+    cols.use = c("grey", "blue", "red", "green"), 
+    reduction.use = "tsne",
+    overlay = TRUE)
+
+FeaturePlot(object = organoids.combined,
+    features.plot = c("FOXP2", "PCP4"),
+    cols.use = c("grey", "blue", "red", "green"), 
+    reduction.use = "tsne",
+    overlay = TRUE)
+
+FeaturePlot(object = organoids.combined,
+    features.plot = c("DCX", "NCAM1"),
+    cols.use = c("grey", "yellow", "blue", "green"), 
+    reduction.use = "tsne",
+    overlay = TRUE)
+```
+
+```{r want to dig into subsetting of specific cells to identify FOXP2 expressers for example}
+
+
+organoids.combined.markers_cluster0 <- subset(organoids.combined.markers, organoids.combined.markers$cluster== "Population 0", select=7)
+#This would let me pull out lists of markers at a time, however may not let me hunt particular cells. I might need to delve further
+
+OCSDDF<-as.data.frame(organoids.combined@scale.data)
+z<-OCSDDF["FOXP2",1:1231]
+boxplot(z[1:1231])
+x<-z[which("FOXP2">=1)] #this does not work like I think it should
+z$STD_AAACCTGAGTGGACGT
+
+
+#What is actually happening between looking at this data and the final product on the featureplot? This is one way to look at the spread of expression of FOXP2. Now what if I were to identify or sort the 'positive' cells, I could define an arbitrary cutoff of ...
+```
+
+```{r want to test what a number less then 1 logFC in the populationmarkers list means}
+#Pick top '3 best and worst' examples from population 0 marker list - i should ask fab/dev what logFC less than one actually means
+FeaturePlot(object = organoids.combined, features.plot = c("STMN2", "MLLT11", "DCX", "JUN", "SNCA", "TCF4"), min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+```
+
+```{r want to check out the Gupta list P1 mouse also looked at isoforms}
+GuptaOligo<-c("PDGFRA", "OLIG1", "OLIG2")
+GuptaBG<-c("APOE", "CLU", "GDF10")
+GuptaGC<-c("NEUROD1", "CCND2")
+GuptaPC<-c("PCP4", "GAD1", "GAD2")
+GuptaDCNIGL<-c("PNOC", "TCF7L2", "GAD1", "GAD2", "LHX9")
+GuptaMisc<-c("TMEM119", "NECAB2", "AGT", "BTG2", "PTF1A", "TFAP2B", "EGFL7")
+
+FeaturePlot(object = organoids.combined, features.plot = GuptaBG, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+GuptaBGPlot<-SplitDotPlotGG(organoids.combined, genes.plot = rev(GuptaBG), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+FeaturePlot(object = organoids.combined, features.plot = GuptaGC, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+GuptaGCPlot<-SplitDotPlotGG(organoids.combined, genes.plot = rev(GuptaGC), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+FeaturePlot(object = organoids.combined, features.plot = GuptaPC, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+GuptaPCPlot<-SplitDotPlotGG(organoids.combined, genes.plot = rev(GuptaPC), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+FeaturePlot(object = organoids.combined, features.plot = GuptaDCNIGL, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+GuptaDCNIGLPlot<-SplitDotPlotGG(organoids.combined, genes.plot = rev(GuptaDCNIGL), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+
+#Interesting that Gupta report the fact that IGL and DCN cluster together 'probably due to their close embryonic origins', I think I see the same thing in this dataset based on some early clustering. THIS is also consistent with cellseek who also used their monocle/pseudotime analysis to reconstruct this developmental split.
+FeaturePlot(object = organoids.combined, features.plot = GuptaMisc, min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5)
+GuptaMiscPlot<-SplitDotPlotGG(organoids.combined, genes.plot = rev(GuptaMisc), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+
+#Use this an an opportunity to test putting titles on featureplots which is only possible in a roundabout fashion
+#lapply(GuptaOligoPlot, function(x){x + labs(title = Gupto_Oligodendrocytes_Mutine_P1vs_Nayler)}) DOES NOT WORK ATM
+
+GuptaMouseP1Plots<-plot_grid(GuptaBGPlot, GuptaGCPlot, GuptaPCPlot, GuptaDCNIGLPlot, GuptaMiscPlot, labels = c("GuptaBGPlot", "GuptaGCPlot", "GuptaPCPlot", "GuptaDCNIGLPlot"," GuptaMiscPlot"), align = "v")
+
+save_plot("20190201GuptaMurineP1_vsNayler.png", GuptaMouseP1Plots, 
+          ncol = 3, 
+          nrow = 3,
+          base_aspect_ratio = 1.6)
+```
+
+```{r  KING OF PLOTS want to try and see what heatmaps look like with my genemarker lists}
+#This is a really nice way to automate my cell type marker data frame, which changes to produce heatmaps
+#I should also consider making new lists to include gupta, carter, lake datasets including references/developmental age, note I may want to change the way the DF is set up to make it easier to include references/extra info
+GCHM<-DoHeatmap(object = organoids.combined, genes.use = MarkersDF2$Granule, slim.col.label = TRUE, remove.key = TRUE, group.label.rot = 45, cex.row =3, group.cex =5)
+PCHM<-DoHeatmap(object = organoids.combined, genes.use = MarkersDF2$Purkinje, slim.col.label = TRUE, remove.key = TRUE, group.label.rot = 45, cex.row =3, group.cex =5)
+BGHM<-DoHeatmap(object = organoids.combined, genes.use = MarkersDF2$Bergmann, slim.col.label = TRUE, remove.key = TRUE, group.label.rot = 45, cex.row =3, group.cex =5)
+PRHM<-DoHeatmap(object = organoids.combined, genes.use = MarkersDF2$Precursor, slim.col.label = TRUE, remove.key = TRUE, group.label.rot = 45, cex.row =3, group.cex =5)
+ASHM<-DoHeatmap(object = organoids.combined, genes.use = MarkersDF2$Astrocyte, slim.col.label = TRUE, remove.key = TRUE, group.label.rot = 45, cex.row =3, group.cex =5)
+INHM<-DoHeatmap(object = organoids.combined, genes.use = MarkersDF2$Interneuron, slim.col.label = TRUE, remove.key = TRUE, group.label.rot = 45, cex.row =3, group.cex =5)
+GOLHM<-DoHeatmap(object = organoids.combined, genes.use = MarkersDF2$Golgi, slim.col.label = TRUE, remove.key = TRUE, group.label.rot = 45, cex.row =3, group.cex =5)
+CPHM<-DoHeatmap(object = organoids.combined, genes.use = MarkersDF2$ChoroidPlexus, slim.col.label = TRUE, remove.key = TRUE, group.label.rot = 45, cex.row =3, group.cex =5)
+RPHM<-DoHeatmap(object = organoids.combined, genes.use = MarkersDF2$RoofPlate, slim.col.label = TRUE, remove.key = TRUE, group.label.rot = 45, cex.row =3, group.cex =5)
+GAPHM<-DoHeatmap(object = organoids.combined, genes.use = MarkersDF2$GabaergicProg, slim.col.label = TRUE, remove.key = TRUE, group.label.rot = 45, cex.row =3, group.cex =5)
+GCNHM<-DoHeatmap(object = organoids.combined, genes.use = MarkersDF2$GlutamatergicCN, slim.col.label = TRUE, remove.key = TRUE, group.label.rot = 45, cex.row =3, group.cex =5)
+GINHM<-DoHeatmap(object = organoids.combined, genes.use = MarkersDF2$GabaergicIN, slim.col.label = TRUE, remove.key = TRUE, group.label.rot = 45, cex.row =3, group.cex =5)
+OLHM<-DoHeatmap(object = organoids.combined, genes.use = MarkersDF2$Oligodendrocytes, slim.col.label = TRUE, remove.key = TRUE, group.label.rot = 45, cex.row =3, group.cex =5)
+#I should make a cowlot here
+
+HMMarkersDF2<-plot_grid(ASHM, BGHM, PCHM, GCHM, INHM, GOLHM, CPHM, RPHM, GAPHM, GCNHM,GINHM, OLHM, labels = c("Astrocytes", "Bergmann Glia", "Purkine cells", "Granule cells", "Interneurons", "Golgi cells", "Choroid Plexus", "Roof plate", "GABAergic progenitors", "Glutamatergic Cerebellar Nuclei", "GABAergic interneurons", "Oligodendrocytes"), align = "v")
+
+save_plot("20190201MarkersDF2Nayler.png", HMMarkersDF2, 
+          ncol = 3, 
+          nrow = 4,
+          base_aspect_ratio = 1.6)
+
+```
+
+```{r cowplot test font changing}
+p1 <- qplot(1:10, 1:10) + labs(title = "Linear plot") p2 <- qplot(1:10, (1:10)^2) + labs(title = "Quadratic plot") theme_set(theme_cowplot(font_size=12, font_family = "Times") + theme(text = element_text(colour = "blue"))) plot_grid(p1, p2, labels = "AUTO")
+
+
+```
+
+```{r Rosenburg 2018 paper}
+#note: this has some nice diagrams
+FeaturePlot(object = organoids.combined, features.plot =c("FIGN", "ARAP1", "PAX3", "NTN1", "PAX2") , pt.size = 0.5) 
+Rosenburg2018<-c("FIGN", "ARAP1", "NTN1", "PAX2", "PAX3", "GLI2", "UNC5D", "GABRB2", "GRIN2C")
+SplitDotPlotGG(organoids.combined, genes.plot = rev(Rosenburg2018), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+#Note: PAX3 came out as a great makrer of CB granule and is consisten in my data. Also worth noting is that while it appears to be there in equivalent proportions in population 3 it is dampened significantly in MG Pop 5. Also interesting is that UNC5D is dampened in CTRL in population 2.
+
+VlnPlot(object=organoids.combined, features.plot = "UNC5D", group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+VlnPlot(object=organoids.combined, features.plot = "UNC5D", group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+
+VlnPlot(object=organoids.combined, features.plot = "PAX3", group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+VlnPlot(object=organoids.combined, features.plot = "PAX3", group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+
+
+FeaturePlot(object = organoids.combined, features.plot =c("DCX", "NDNF", "RYR1") , pt.size = 0.5) 
+RosenburgPCs<-c("DCX", "NDNF", "RYR1")
+SplitDotPlotGG(organoids.combined, genes.plot = rev(RosenburgPCs), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+
+FeaturePlot(object = organoids.combined, features.plot =c("GLI2", "NTN1", "UNC5D", "GABRB2", "GRIN2C", "PARM1", "NRG1") , pt.size = 0.5) 
+RosenburgGCs<-c("GLI2", "NTN1", "UNC5D", "GABRB2", "GRIN2C")
+SplitDotPlotGG(organoids.combined, genes.plot = rev(RosenburgGCs), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+
+#NICE TO SEE Gli2 in pop6 (putatively identified proliferating GCs or EGL type), not also in pop 3 a little more (more in stim)
+VlnPlot(object=organoids.combined, features.plot = "GLI2", group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+VlnPlot(object=organoids.combined, features.plot = "GLI2", group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+
+
+```
+
+
+```{r plots for Jena}
+VlnPlot(object=organoids.combined, features.plot = "FOXP2", group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+VlnPlot(object=organoids.combined, features.plot = "FOXP1", group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+FeaturePlot(object = organoids.combined, features.plot =c("FOXP2", "FOXP1") , pt.size = 0.5, cols.use = c("grey", "red"))
+
+dim(organoids.combined@scale.data)
+#Returns [1] 33694  1231 meaning 33694 genes and 1231 cells
+allgenes<-rownames(organoids.combined@scale.data)
+grep("FOXP2",allgenes)
+#Returns [1] 12824
+foxp2<-organoids.combined@scale.data[12824, 1:1231]
+write.csv(foxp2, "foxp2.csv")
+#113 non-negative values out of 1231 cells. Many of these values are negatives, assume this is due to normalisation/scaling. Can I take total number of cells - number of 0 or negative expressers to equal the number of 'positive' cells?
+
+dim(organoids.combined@data)
+#Returns [1] 33694  1231 meaning 33694 genes and 1231 cells
+allgeneslog<-rownames(organoids.combined@data)
+grep("FOXP2",allgeneslog)
+#Returns [1] 12824
+foxp2log<-organoids.combined@data[12824, 1:1231]
+write.csv(foxp2log, "foxp2log.csv")
+#113 non-negative values out of 1231 cells. Many of these values are negatives, assume this is due to normalisation/scaling. Can I take total number of cells - number of 0 or negative expressers to equal the number of 'positive' cells?
+
+dim(organoids.combined@raw.data)
+#[1] 33694  1238
+allgenesraw<-rownames(organoids.combined@raw.data)
+grep("FOXP2",allgenesraw)
+#Returns [1] 12824
+foxp2raw<-organoids.combined@raw.data[12824, 1:1238]
+write.csv(foxp2raw, "foxp2b.csv")
+#113 cells out of 1238 have non-zero values in the raw data
+
+#Steph/Gena offered this advice
+## make a data frame of the cell x UMI table outside of the Seurat object
+#organoids.combined@raw.data=as.data.frame(organoids.combined@raw.data)
+## isolate only cells expressing FOXP2
+#foxp2_pos = rawData[which(rawData$FOXP2 > 0),]
+```
+
+```{r found carter code for figure 2c}
+#https://www.cell.com/current-biology/fulltext/S0960-9822(18)30992-8
+
+granule_genes_for_heatmap <- data.frame(GENENAME= c('Selm','Pax6','Mfap4','NeuroD1','Atoh1','Barhl1','Ppp2r2c'), cell_type = 'Granule', stringsAsFactors = FALSE)
+#ntz_genes_for_heatmap <- data.frame(GENENAME=c('Tmem163','Meis2','Lhx2','Lhx9','Grem2','Gng8','Evx1'), cell_type = 'NTZ', stringsAsFactors = FALSE)
+#gaba_genes_for_heatmap <- data.frame(GENENAME=c('Lhx5','Lhx1','Gad2','Gad1', 'Foxp2', 'Pax2', 'Lbx1', 'Optc', 'Gm27199','Slc32a1'), cell_type = 'GABA', stringsAsFactors = FALSE)
+#progenitor_genes_for_heatmap <- data.frame(GENENAME=c('Sparc', 'Nes', 'Id1', 'Id3', 'Hes5', 'Msx3'), cell_type = 'Progenitor', stringsAsFactors = FALSE)
+#purkinje_genes_for_heatmap <- data.frame(GENENAME=c('Car8','Calb1','Pcp2','Rora'), cell_type = 'Purkinje', stringsAsFactors = FALSE)
+#glia_genes_for_heatmap <- data.frame(GENENAME=c('Aldh1l1', 'Aldoc', 'Hopx', 'Timp4', 'Ndrg2', 'Gdf10', 'Sox9', 'Slc1a3', 'Sparcl1'), cell_type = 'Glia', stringsAsFactors = FALSE)
+#other_genes_for_heatmap <- data.frame(GENENAME=c('Vtn', 'Bgn','Cldn5','Igfbp7','Vamp5','Clec1b','Dynlrb2','Meig1', 'Dcn','Slc6a13','Col3a1','Col1a2','Krt18', 'Colec12','Rspo1', 'Bambi','Hba-a2','Alas2','Hbb-bt','Fech','Ly86', 'Fcer1g', 'Olig1', 'Matn4','Isl1','Sncg','Dlk1','Tlx3'), cell_type = 'Other', stringsAsFactors = FALSE)
+#Convert to caps
+#ntz_genes_for_heatmap <- data.frame(GENENAME=c('TMEM163','MEIS2','LHX2','LHX9','GREM2','GNG8','EVX1'), cell_type = 'NTZ', stringsAsFactors = FALSE)
+#granule_genes_for_heatmap <- data.frame(GENENAME= c('SELM','PAX6','MFAP4','NEUROD1','ATOH1','BARHL1','PPP2R2C'), cell_type = 'Granule', stringsAsFactors = FALSE)
+d<-FeaturePlot(object = organoids.combined, features.plot =granule_genes_for_heatmap2 , pt.size = 0.5, cols.use = c("grey", "red"))
+MarkersDF2$Bergmann<-Bergmann
+FeaturePlot(object = organoids.combined, features.plot =c("PVALB", "SST", "NRGN", "LMX1A", "MSX1", "TTR"), pt.size = 0.5, cols.use = c("grey", "red"))
+
+#gaba_genes_for_heatmap <- data.frame(GENENAME=c('LHX5','LHX1','GAD2','GAD1', 'FOXP2', 'PAX2', 'LBX1', 'OPTC', 'GM27199','SLC32A1'), cell_type = 'GABA', stringsAsFactors = FALSE)
+#progenitor_genes_for_heatmap <- data.frame(GENENAME=c('SPARC', 'NES', 'ID1', 'ID3', 'HES5', 'MSX3'), cell_type = 'Progenitor', stringsAsFactors = FALSE)
+#purkinje_genes_for_heatmap <- data.frame(GENENAME=c('CAR8','CALB1','PCP2','RORA'), cell_type = 'Purkinje', stringsAsFactors = FALSE)
+#glia_genes_for_heatmap <- data.frame(GENENAME=c('ALDH1L1', 'ALDOC', 'HOPX', 'TIMP4', 'NDRG2', 'GDF10', 'SOX9', 'SLC1A3', 'SPARCL1'), cell_type = 'Glia', stringsAsFactors = FALSE)
+#other_genes_for_heatmap <- data.frame(GENENAME=c('VTN', 'BGN','CLDN5','IGFBP7','VAMP5','CLEC1B','DYNLRB2','MEIG1', 'DCN','SLC6A13','COL3A1','COL1A2','KRT18', 'COLEC12','RSPO1', 'BAMBI','HBA-A2','ALAS2','HBB-BT','FECH','LY86', 'FCER1G', 'OLIG1', 'MATN4','ISL1','SNCG','DLK1','TLX3'), cell_type = 'Other', stringsAsFactors = FALSE)
+
+#Make heatmaps for these
+
+i<-DoHeatmap(object = organoids.combined, genes.use = granule_genes_for_heatmap$GENENAME, slim.col.label = TRUE, remove.key = FALSE, group.label.rot = 45, cex.row =5, group.cex =7.5)
+ii<-DoHeatmap(object = organoids.combined, genes.use = gaba_genes_for_heatmap$GENENAME, slim.col.label = TRUE, remove.key = FALSE, group.label.rot = 45, cex.row =5, group.cex =7.5)
+iii<-DoHeatmap(object = organoids.combined, genes.use = purkinje_genes_for_heatmap$GENENAME, slim.col.label = TRUE, remove.key = FALSE, group.label.rot = 45, cex.row =5, group.cex =7.5)
+iv<-DoHeatmap(object = organoids.combined, genes.use = glia_genes_for_heatmap$GENENAME, slim.col.label = TRUE, remove.key = FALSE, group.label.rot = 45, cex.row =5, group.cex =7.5)
+v<-DoHeatmap(object = organoids.combined, genes.use = other_genes_for_heatmap$GENENAME, slim.col.label = TRUE, remove.key = FALSE, group.label.rot = 45, cex.row =5, group.cex =7.5)
+
+CarterMarkers<-plot_grid(i,ii,iii,iv,v, labels = c("Granule", "GABA","Purkinje","Glia","Other"), align = "v")
+save_plot("20190212CartergenegroupsvsNayler.png", Carter, 
+          ncol = 3, 
+          nrow = 3,
+          base_aspect_ratio = 1.6)
+
+```
+
+```{r bergman glia and basement membrane}
+#https://www.sciencedirect.com/science/article/pii/S0301008213000701  has a nice section on glia and also the basement membrane with genes such as 
+
+VlnPlot(object=organoids.combined, features.plot = c("CRK", "ABL1", "PTK2", "ILK", "LAMA3", "DAG1"), group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+VlnPlot(object=organoids.combined, features.plot = c("CRK", "ABL1", "PTK2", "ILK", "LAMA3", "DAG1"), group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+FeaturePlot(object = organoids.combined, features.plot =c("CRK", "ABL1", "PTK2", "ILK", "LAMA3", "DAG1") , pt.size = 0.5, cols.use = c("grey", "red"))
+#No obvious difference between treatment groups here
+```
+
+```{r check out genes for clustering between DCN/GCs}
+VlnPlot(object=organoids.combined, features.plot = c("LHX2", "MKI67", "DCX", "NCAM1"), group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+FeaturePlot(object = organoids.combined, features.plot =c("LHX2", "MKI67", "DCX", "NCAM1") , pt.size = 0.5, cols.use = c("grey", "red"))
+
+a<-VlnPlot(object=organoids.combined, features.plot = ntzgenes, group.by = "res.0.8", do.return = TRUE, x.lab.rot = 45)
+b<-FeaturePlot(object = organoids.combined, features.plot =ntzgenes , pt.size = 0.5, cols.use = c("grey", "red"))
+c<-VlnPlot(object=organoids.combined, features.plot = granule_genes_for_heatmap$GENENAME, group.by = "res.0.8", do.return = TRUE, x.lab.rot = 45)
+d<-FeaturePlot(object = organoids.combined, features.plot =granule_genes_for_heatmap2 , pt.size = 0.5, cols.use = c("grey", "red"))
+
+
+GCsDCNPop0<-plot_grid(a,c, labels = c("DCN/NTZ","GCs"), align = "v")
+save_plot("20190214CartergenesDCNNTZvsGC.png", GCsDCNPop0, 
+          ncol = 3, 
+          nrow = 3,
+          base_aspect_ratio = 1.6)
+
+
+#Vasculature from Cartermarkers
+FeaturePlot(object = organoids.combined, features.plot =c("HBA1", "ALAS2", "HBB", "FECH","IGFBP7"), pt.size = 0.5, cols.use = c("grey", "red"))
+
+```
+```{r test antibody labelling gene expression}
+#ALl cellls are labelled with a combination of cd298 or atp1b3 AND B2m
+FeaturePlot(object = organoids.combined, features.plot =c("B2M", "ATP1B3"), pt.size = 0.5, cols.use = c("grey", "red"))
+```
+
+```{r a wizemann once said}
+#WIZEMANN   
+FeaturePlot(object = organoids.combined, features.plot =c("HES1", "HES5", "BARHL1", "ATOH1", "LHX1", "LHX5", "CLDN5", "VTN"), pt.size = 0.5, cols.use = c("grey", "red"))
+FeaturePlot(object = organoids.combined, features.plot =c("SOX2", "FGF17", "MKI67", "CALB2"), pt.size = 0.5, cols.use = c("grey", "red"))
+FeaturePlot(object = organoids.combined, features.plot =c("LMX1A","WNT1"), pt.size = 0.5, cols.use = c("grey", "red"))
+FeaturePlot(object = organoids.combined, features.plot =c("KIRREL2", "PTF1A"), pt.size = 0.5, cols.use = c("grey", "red"))
+FeaturePlot(object = organoids.combined, features.plot =c("ASCL1", "NEUROG1", "NEUROG2"), pt.size = 0.5, cols.use = c("grey", "red"))
+FeaturePlot(object = organoids.combined, features.plot =c("PAX2", "GAD1", "PNOC", "GLRA2"), pt.size = 0.5, cols.use = c("grey", "red"))
+FeaturePlot(object = organoids.combined, features.plot =c("TLE1", "ISLR2"), pt.size = 0.5, cols.use = c("grey", "red"))
+FeaturePlot(object = organoids.combined, features.plot =c("ETV1", "NRGN", "EN1", "CCK", "FOXP1", "PCP4"), pt.size = 0.5, cols.use = c("grey", "red")) #NEW PC SUBCLUSTER MARKERS
+FeaturePlot(object = organoids.combined, features.plot =c("ISL1", "DLK1", "TLX3", "SNCG", "LHX9", "NEUROD1", "ATOH1", "TH", "OLIG2", "TBR1", "LMX1A"), pt.size = 0.5, cols.use = c("grey", "red")) #POTENTIAL NTZ/SUBPIAL STREAM/DORSAL OR VENTRAL NTZ
+FeaturePlot(object = organoids.combined, features.plot =c("LHX9", "NEUROD1"), pt.size = 0.5, cols.use = c("grey", "red", "blue", "green"), overlay = TRUE) #DORSAL OR VENTRAL NTZ
+Wizeman<-c("KIRREL2", "PTF1A", "OLIG2", "LHX1", "LHX5", "NEUROG1", "ETV5", "PTPRZ1", "FABP7", "FGFR1", "HOPX", "ELV4", "PDGFC", "SLC1A3", "VIM", "MSX3", "HES5", "ATP1A2", "BARHL1", "ATOH1", "HES6", "NKD1", "WNT1", "MSX2", "LMX1A", "WLS", "LMO2", "RSPO1", "OTX2")
+DoHeatmap(object = organoids.combined, genes.use = Wizeman, slim.col.label = TRUE, remove.key = FALSE, group.label.rot = 45, cex.row =5, group.cex =7.5)
+
+
+```
+
+```{r a wizemann once said}
+#PENG  
+FeaturePlot(object = organoids.combined, features.plot =c("RBFOX3", "ATOH1", "TPX2", "MKI67", "HEY1", "TUBB3", "CNTN2"), pt.size = 0.5, cols.use = c("grey", "red"))
+FeaturePlot(object = organoids.combined, features.plot =c("GAD1","CALB1","PCP2","CSDC2","CHCHD10","ITPKA","CDS1",	"ADCY1"), pt.size = 0.5, cols.use = c("grey", "red")) #PENGS PURKINJES
+FeaturePlot(object = organoids.combined, features.plot =c("PTF1A",	"ASCL1",	"TOP2A",	"PAX3",	"GAD1",	"GAD2",	"SLC6A13"), pt.size = 0.5, cols.use = c("grey", "red")) #PENGS INTERNEURON PROG.
+DoHeatmap(object = organoids.combined, genes.use = Wizeman, slim.col.label = TRUE, remove.key = FALSE, group.label.rot = 45, cex.row =5, group.cex =7.5)
+
+
+```
+
+```{r make updated list from Carter, Gupta, Rosenberg, Peng, Wizeman}
+
+Lit<-read.csv("~/Desktop/bsg-ftp.well.ox.ac.uk/Sams Analysis/20190218LitMarkers.csv")
+LitHMA<-DoHeatmap(object = organoids.combined, genes.use = Lit$Gene, slim.col.label = TRUE, remove.key = FALSE, group.label.rot = 45, cex.row =4, group.cex =7.5, draw.line = TRUE)
+
+#I should consider sorting this by cell type, or labelling. I have approximated this by alphabetizing.
+```
+
+```{r subset of pop2of8 and enrichr results visu}
+popm<-c("CD9", "ID3", "ID1", "SPINT2", "TTR", "IGFBP7")
+FeaturePlot(object = organoids.combined, features.plot =popm, pt.size = 0.5, cols.use = c("grey", "red")) #PENGS 
+SplitDotPlotGG(organoids.combined, genes.plot = rev(popm), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+VlnPlot(object=organoids.combined, features.plot = popm, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+VlnPlot(object=organoids.combined, features.plot = popm, group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+
+#If I findmarkers for population2 vs all others (and I am still not sure about how this differs if I findallmarkers and run just population 2, I hit lots of murine cerebellum regions, note I did not previously hit this while trawling enrichr, I should go back and venny or compare the lists - i should also check if I curated on positive logFC
+
+
+```
+```{r subset of pop1 of8 and enrichr results visu}
+pop1.8enrichr<-c("PAX3", "ZFP36L1","PTPRZ1", "GDF10", "RFX4", "ZIC1")
+FeaturePlot(object = organoids.combined, features.plot =pop1.8enrichr, pt.size = 0.5, cols.use = c("grey", "red")) #PENGS 
+SplitDotPlotGG(organoids.combined, genes.plot = rev(pop1.8enrichr), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+VlnPlot(object=organoids.combined, features.plot = pop1.8enrichr, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+VlnPlot(object=organoids.combined, features.plot = pop1.8enrichr, group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+
+#If I findmarkers for population2 vs all others (and I am still not sure about how this differs if I findallmarkers and run just population 2, I hit lots of murine cerebellum regions, note I did not previously hit this while trawling enrichr, I should go back and venny or compare the lists - i should also check if I curated on positive logFC
+
+
+```
+```{r subset of pop6 of8 and enrichr results visu}
+pop6.8enrichr<-c("EFEMP1", "IGFBP2", "PBXIP1", "CD9", "SOSTDC1", "SPINT2")
+FeaturePlot(object = organoids.combined, features.plot =pop6.8enrichr, pt.size = 0.5, cols.use = c("grey", "red"))  
+SplitDotPlotGG(organoids.combined, genes.plot = rev(pop6.8enrichr), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = T, dot.scale = 8, do.return = T, grouping.var ="stim")
+VlnPlot(object=organoids.combined, features.plot = pop6.8enrichr, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45)
+VlnPlot(object=organoids.combined, features.plot = pop6.8enrichr, group.by = "stim", do.return = TRUE, x.lab.rot = 45)
+
+#If I findmarkers for population2 vs all others (and I am still not sure about how this differs if I findallmarkers and run just population 2, I hit lots of murine cerebellum regions, note I did not previously hit this while trawling enrichr, I should go back and venny or compare the lists - i should also check if I curated on positive logFC
+
+
+```
+
+```{r enrichr automation}
+dbs <- listEnrichrDbs()
+
+enrichr(c(c("SPARC", "NES", "ID1", "ID3", "HES5", "MSX1", "TMEM163", "MEIS2", "LHX2", "LHX9", "GREM2", "GNG8", "EVX1", "SELM", "PAX6", "MFAP4", "NEUROD1", "ATOH1", "BARHL1", "PPP2R2C", "TLX3", "LHX5", "LHX1", "GAD2", "GAD1", "FOXP2", "GM27199", "SLC32A1", "CALB1", "RORA", "PAX2", "LBX1", "OPTC", "ALDH1L1", "ALDOC", "HOPX", "TIMP4", "NDRG2", "GDF10", "SOX9", "SOX10", "SLC1A3", "SPARCL1", "VTN", "BGN", "FOXC1", "CLDN5", "IGFBP7", "VAMP5", "CLEC1B", "CD34", "PECAM1", "DYNLRB2", "MEI1", "DCN", "SLC6A13", "COL3A1", "COL1A2", "KRT18", "COLEC12", "RSPO1", "CAMBI", "HBA-A2", "ALAS2", "HBB-BT","FECH", "LY86", "FCER1G", "TMEM119", "ITGAM", "OLIG1", "MATN4", "ISL1", "SNCG", "DLK1", "LMX1A")), databases ="Allen_Brain_Atlas_Up")
+
+#or automate
+
+dbs2<-c("Allen_Brain_Atlas_up")
+enriched<-enrichr(c("SPARC", "NES", "ID1", "ID3", "HES5", "MSX1", "TMEM163", "MEIS2", "LHX2", "LHX9", "GREM2", "GNG8", "EVX1", "SELM", "PAX6", "MFAP4", "NEUROD1", "ATOH1", "BARHL1", "PPP2R2C", "TLX3", "LHX5", "LHX1", "GAD2", "GAD1", "FOXP2", "GM27199", "SLC32A1", "CALB1", "RORA", "PAX2", "LBX1", "OPTC", "ALDH1L1", "ALDOC", "HOPX", "TIMP4", "NDRG2", "GDF10", "SOX9", "SOX10", "SLC1A3", "SPARCL1", "VTN", "BGN", "FOXC1", "CLDN5", "IGFBP7", "VAMP5", "CLEC1B", "CD34", "PECAM1", "DYNLRB2", "MEI1", "DCN", "SLC6A13", "COL3A1", "COL1A2", "KRT18", "COLEC12", "RSPO1", "CAMBI", "HBA-A2", "ALAS2", "HBB-BT","FECH", "LY86", "FCER1G", "TMEM119", "ITGAM", "OLIG1", "MATN4", "ISL1", "SNCG", "DLK1", "LMX1A"), databases= dbs2)
+
+enriched
+
+#I should find a way to automate this even more heavily, ie filtering my population markers by cluster/FC to pipe through!
+
+
+
+```
+
+```{r automate enrichr for res 2population 0-12}
+
+res2markers<-read.csv("~/Desktop/bsg-ftp.well.ox.ac.uk/Sams Analysis/20190207_resolution2pt0/20190212_13_pops_organoidscombinedmarkers.csv")
+#?res2markerspopzero<-organoids.combined.markers %>% group_by(cluster) %>% top_n(50, avg_logFC)
+organoids.combined.markers_cluster0 <- subset(organoids.combined.markers, organoids.combined.markers$cluster== "0", select=7)
+organoids.combined.markers_cluster0$gene
+enriched0<-enrichr((organoids.combined.markers_cluster0$gene), databases=dbs2)
+enriched0
+write.csv(enriched0,"20190222Pop0of12_enrichr_ABA.csv")
+
+organoids.combined.markers_cluster1 <- subset(organoids.combined.markers, organoids.combined.markers$cluster== "1", select=7)
+organoids.combined.markers_cluster1$gene
+enriched1<-enrichr((organoids.combined.markers_cluster1$gene), databases=dbs2)
+enriched1
+write.csv(enriched1,"20190222Pop1of12_enrichr_ABA.csv")
+
+organoids.combined.markers_cluster2 <- subset(organoids.combined.markers, organoids.combined.markers$cluster== "2", select=7)
+organoids.combined.markers_cluster2$gene
+enriched2<-enrichr((organoids.combined.markers_cluster2$gene), databases=dbs2)
+enriched2
+write.csv(enriched2,"20190222Pop2of12_enrichr_ABA.csv")
+
+organoids.combined.markers_cluster3 <- subset(organoids.combined.markers, organoids.combined.markers$cluster== "3", select=7)
+organoids.combined.markers_cluster3$gene
+enriched3<-enrichr((organoids.combined.markers_cluster3$gene), databases=dbs2)
+enriched3
+write.csv(enriched3,"20190222Pop3of12_enrichr_ABA.csv")
+
+organoids.combined.markers_cluster4 <- subset(organoids.combined.markers, organoids.combined.markers$cluster== "4", select=7)
+organoids.combined.markers_cluster4$gene
+enriched4<-enrichr((organoids.combined.markers_cluster4$gene), databases=dbs2)
+enriched4
+write.csv(enriched4,"20190222Pop4of12_enrichr_ABA.csv")
+
+organoids.combined.markers_cluster5 <- subset(organoids.combined.markers, organoids.combined.markers$cluster== "5", select=7)
+organoids.combined.markers_cluster5$gene
+enriched5<-enrichr((organoids.combined.markers_cluster5$gene), databases=dbs2)
+enriched5
+write.csv(enriched5,"20190222Pop5of12_enrichr_ABA.csv")
+
+organoids.combined.markers_cluster6 <- subset(organoids.combined.markers, organoids.combined.markers$cluster== "6", select=7)
+organoids.combined.markers_cluster6$gene
+enriched6<-enrichr((organoids.combined.markers_cluster6$gene), databases=dbs2)
+enriched6
+write.csv(enriched6,"20190222Pop6of12_enrichr_ABA.csv")
+
+organoids.combined.markers_cluster7 <- subset(organoids.combined.markers, organoids.combined.markers$cluster== "7", select=7)
+organoids.combined.markers_cluster7$gene
+enriched7<-enrichr((organoids.combined.markers_cluster7$gene), databases=dbs2)
+enriched7
+write.csv(enriched7,"20190222Pop7of12_enrichr_ABA.csv")
+
+organoids.combined.markers_cluster8 <- subset(organoids.combined.markers, organoids.combined.markers$cluster== "8", select=7)
+organoids.combined.markers_cluster8$gene
+enriched8<-enrichr((organoids.combined.markers_cluster8$gene), databases=dbs2)
+enriched8
+write.csv(enriched8,"20190222Pop8of12_enrichr_ABA.csv")
+
+organoids.combined.markers_cluster9 <- subset(organoids.combined.markers, organoids.combined.markers$cluster== "9", select=7)
+organoids.combined.markers_cluster9$gene
+enriched9<-enrichr((organoids.combined.markers_cluster9$gene), databases=dbs2)
+enriched9
+write.csv(enriched9,"20190222Pop9of12_enrichr_ABA.csv")
+
+organoids.combined.markers_cluster10 <- subset(organoids.combined.markers, organoids.combined.markers$cluster== "10", select=7)
+organoids.combined.markers_cluster10$gene
+enriched10<-enrichr((organoids.combined.markers_cluster10$gene), databases=dbs2)
+enriched10
+write.csv(enriched10,"20190222Pop10of12_enrichr_ABA.csv")
+
+organoids.combined.markers_cluster11 <- subset(organoids.combined.markers, organoids.combined.markers$cluster== "11", select=7)
+organoids.combined.markers_cluster11$gene
+enriched11<-enrichr((organoids.combined.markers_cluster11$gene), databases=dbs2)
+enriched11
+write.csv(enriched11,"20190222Pop11of12_enrichr_ABA.csv")
+
+organoids.combined.markers_cluster12 <- subset(organoids.combined.markers, organoids.combined.markers$cluster== "12", select=7)
+organoids.combined.markers_cluster12$gene
+enriched12<-enrichr((organoids.combined.markers_cluster12$gene), databases=dbs2)
+enriched12
+write.csv(enriched12,"20190222Pop12of12_enrichr_ABA.csv")
+
+```
+
+
+```{r cowplot for making arranged feature plots start with pop0 starting again 22-02 with reclustered 13 pops}
+#Note every time I run this series I will need to ammend numbers in the code to point to the right genelols genes and also the plot numbers/file numbers
+topmarkers<-organoids.combined.markers %>% group_by(cluster) %>% top_n(6, avg_logFC)
+DoHeatmap(object = organoids.combined, genes.use = organoids.combined.markers$gene, slim.col.label = TRUE, remove.key = FALSE, group.label.rot = 45, cex.row =5, group.cex =7.5)
+
+
+
+genelols<-topmarkers$gene[1:6]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop0<-plot_grid(f1$TRPM3,f2$PCP4,f3$CXCL14,f4$IGFBP7,f5$TTR,f6$PMCH, align = "v")
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = F, dot.scale = 5, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 2, do.return = T, grouping.var ="hash_maxID") 
+#cowplot try and chain together the stitched features and the splits and violins pop 0
+Megapop<-plot_grid(a,b,c,d,e,FPPop0, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190221tSNEplusmegaPop0of13.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+#The labelling of figures still clips some figures and I cant figure out how to reduce the size of the legends
+genelols<-topmarkers$gene[7:12]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop1<-plot_grid(f1$STMN2,f2$RTN1,f3$DCX,f4$SOX4,f5$GAP43,f6$TCF7L2, align = "v")
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = F, dot.scale = 5, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 2, do.return = T, grouping.var ="hash_maxID") 
+#cowplot try and chain together the stitched features and the splits and violins pop 0
+Megapop<-plot_grid(a,b,c,d,e,FPPop1, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190221tSNEplusmegaPop1of13.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+#The labelling of figures still clips some figures and I cant figure out how to reduce the size of the legends
+genelols<-topmarkers$gene[13:18]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop2<-plot_grid(f1$GPM6B,f2$PTN,f3$VIM,f4$C1orf61,f5$PLP1,f6$TTYH1, align = "v")
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = F, dot.scale = 5, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 2, do.return = T, grouping.var ="hash_maxID") 
+#cowplot try and chain together the stitched features and the splits and violins pop 0
+Megapop<-plot_grid(a,b,c,d,e,FPPop2, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190221tSNEplusmegaPop2of13.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+genelols<-topmarkers$gene[19:24]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop3<-plot_grid(f1$FTL,f2$ARF4,f3$PMCH,f4$HSPA5,f5$CRYAB,f6$DLK1, align = "v")
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = F, dot.scale = 5, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 2, do.return = T, grouping.var ="hash_maxID") 
+#cowplot try and chain together the stitched features and the splits and violins pop 0
+Megapop<-plot_grid(a,b,c,d,e,FPPop3, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190221tSNEplusmegaPop3of13.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+#The labelling of figures still clips some figures and I cant figure out how to reduce the size of the legends
+
+genelols<-topmarkers$gene[25:30]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop4<-plot_grid(f1$TAGLN3,f2$MIAT,f3$TCF4,f4$CRABP1,f5$HES6,f6$NNAT, align = "v")
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = F, dot.scale = 5, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 2, do.return = T, grouping.var ="hash_maxID") 
+#cowplot try and chain together the stitched features and the splits and violins pop 0
+Megapop<-plot_grid(a,b,c,d,e,FPPop4, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190221tSNEplusmegaPop4of13.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+#The labelling of figures still clips some figures and I cant figure out how to reduce the size of the legends
+genelols<-topmarkers$gene[31:36]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop5<-plot_grid(f1$RSPO2,f2$PLS3,f3$MASP1,f4$CNTNAP2,f5$IFITM3,f6$NMU, align = "v")
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = F, dot.scale = 5, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 2, do.return = T, grouping.var ="hash_maxID") 
+#cowplot try and chain together the stitched features and the splits and violins pop 0
+Megapop<-plot_grid(a,b,c,d,e,FPPop5, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190221tSNEplusmegaPop5of13.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+#The labelling of figures still clips some figures and I cant figure out how to reduce the size of the legends
+genelols<-topmarkers$gene[37:42]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop6<-plot_grid(f1$ANXA2,f2$SPARCL1,f3$TPBG,f4$RBP1,f5$CYP1B1,f6$IFITM3, align = "v")
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = F, dot.scale = 5, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 2, do.return = T, grouping.var ="hash_maxID") 
+#cowplot try and chain together the stitched features and the splits and violins pop 0
+Megapop<-plot_grid(a,b,c,d,e,FPPop6, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190221tSNEplusmegaPop6of13.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+#The labelling of figures still clips some figures and I cant figure out how to reduce the size of the legends
+genelols<-topmarkers$gene[43:48]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop7<-plot_grid(f1$GAP43,f2$STMN2,f3$TCF7L2,f4$SOX4,f5$PLK2,f6$DPYSL3, align = "v")
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = F, dot.scale = 5, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 2, do.return = T, grouping.var ="hash_maxID") 
+#cowplot try and chain together the stitched features and the splits and violins pop 0
+Megapop<-plot_grid(a,b,c,d,e,FPPop7, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190221tSNEplusmegaPop7of13.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+#The labelling of figures still clips some figures and I cant figure out how to reduce the size of the legends
+genelols<-topmarkers$gene[49:54]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop8<-plot_grid(f1$GADD45B,f2$DDIT3,f3$FTL,f4$PPP1R15A,f5$SQSTM1,f6$MT2A, align = "v")
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = F, dot.scale = 5, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 2, do.return = T, grouping.var ="hash_maxID") 
+#cowplot try and chain together the stitched features and the splits and violins pop 0
+Megapop<-plot_grid(a,b,c,d,e,FPPop8, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190221tSNEplusmegaPop8of13.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+#The labelling of figures still clips some figures and I cant figure out how to reduce the size of the legends
+genelols<-topmarkers$gene[55:60]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop9<-plot_grid(f1$KIAA0101,f2$TYMS,f3$PCNA,f4$TUBA1B,f5$HMGB2,f6$HIST1H4C, align = "v")
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = F, dot.scale = 5, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 2, do.return = T, grouping.var ="hash_maxID") 
+#cowplot try and chain together the stitched features and the splits and violins pop 0
+Megapop<-plot_grid(a,b,c,d,e,FPPop9, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190221tSNEplusmegaPop9of13.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+#The labelling of figures still clips some figures and I cant figure out how to reduce the size of the legends
+genelols<-topmarkers$gene[61:66]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop10<-plot_grid(f1$TOP2A,f2$CCNB1,f3$UBE2C,f4$PTTG1,f5$HMGB2,f6$KPNA2, align = "v")
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = F, dot.scale = 5, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 2, do.return = T, grouping.var ="hash_maxID") 
+#cowplot try and chain together the stitched features and the splits and violins pop 0
+Megapop<-plot_grid(a,b,c,d,e,FPPop10, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190221tSNEplusmegaPop10of13.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+#The labelling of figures still clips some figures and I cant figure out how to reduce the size of the legends
+genelols<-topmarkers$gene[67:72]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop11<-plot_grid(f1$CFAP126,f2$C1orf194,f3$PIFO,f4$TPPP3,f5$IGFBP7,f6$TTR, align = "v")
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = F, dot.scale = 5, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 2, do.return = T, grouping.var ="hash_maxID") 
+#cowplot try and chain together the stitched features and the splits and violins pop 0
+Megapop<-plot_grid(a,b,c,d,e,FPPop11, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190221tSNEplusmegaPop11of13.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+#The labelling of figures still clips some figures and I cant figure out how to reduce the size of the legends
+genelols<-topmarkers$gene[73:78]
+# I need to manually stitch together the featureplots into one cowplot by calling on the gene ie f1$STMN2
+f1<-FeaturePlot(object = organoids.combined, features.plot =genelols[1], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f2<-FeaturePlot(object = organoids.combined, features.plot =genelols[2], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f3<-FeaturePlot(object = organoids.combined, features.plot =genelols[3], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f4<-FeaturePlot(object = organoids.combined, features.plot =genelols[4], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f5<-FeaturePlot(object = organoids.combined, features.plot =genelols[5], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+f6<-FeaturePlot(object = organoids.combined, features.plot =genelols[6], min.cutoff = "q9", cols.use = c("lightgrey", "blue"), pt.size = 0.5, do.return = T, nCol = 1)
+
+FPPop12<-plot_grid(f1$WSB1,f2$CENPF,f3$SLC3A2,f4$MALAT1,f5$TOP2A,f6$SYT4, align = "v")
+
+a<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "hash_maxID", do.return = TRUE, x.lab.rot = 45, size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual organoids
+b<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "stim", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in control/stimulation groups
+c<-VlnPlot(object=organoids.combined, features.plot = genelols, group.by = "ident", do.return = TRUE, x.lab.rot = 45,size.title.use =7.5, size.x.use = 7.5, size.y.use = 5, point.size.use = 0.25)
+#Genes marking population 0 in Individual populations! This is best for validating DE, also use tsne!
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = F, dot.scale = 5, do.return = T, grouping.var ="stim")
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 2, do.return = T, grouping.var ="hash_maxID") 
+#cowplot try and chain together the stitched features and the splits and violins pop 0
+Megapop<-plot_grid(a,b,c,d,e,FPPop12, labels =c("A","B","C","D","E","F"), align = "h")
+save_plot("20190221tSNEplusmegaPop12of13.png", Megapop, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+#Want to try modifying this to (not?) return a ggplot object
+
+d<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = F, dot.scale = 5, do.return = T, grouping.var ="stim")
+d2<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("blue", "orange"), x.lab.rot = T, plot.legend = F, dot.scale = 5, do.return = T, grouping.var ="stim")
+d2 <- d + theme(axis.text.y= element_text(size=8))
+d2
+
+e<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 2, do.return = T, grouping.var ="hash_maxID") 
+e2<-SplitDotPlotGG(organoids.combined, genes.plot = rev(genelols), cols.use = c("red", "orange", "yellow", "green", "blue", "violet"), x.lab.rot = T, plot.legend = F, dot.scale = 2, do.return = F, grouping.var ="hash_maxID") 
+
+e3 <- e + theme(axis.text.y= element_text(size=4))
+e3
+
+#cowplot try and chain together the stitched features and the splits and violins pop 0
+tests<-plot_grid(d,d2, labels =c("A","B"), align = "h")
+save_plot("20190221testswithandwithouttext.png", tests, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.5)
+
+#Stuck on this, there must be a way to modify text size using ggplot text modification instructions
+
+```
+
+```{r test genes separating GABAERGIC IN/PC lineages from carter fig s4}
+carterPCGIN<-c("ZFP575", "RORA", "FOXP1", "RORB", "ID2", "TSHZ2", "MEF2C", "WIZ", "CSDC2", "FOXP4", "EBF2", "EBF3", "ETV1", "LHX1", "BCL11A", "EBF1", "ZFP467", "ID4", "FOXP2", "DPF1","PAX3", "TCF15", "ST18", "NHLH1", "TOX3", "NEUROG1", "NEUROG2", "TCF12", "TFAP2B", "SOX11", "NHLH2", "IRX2", "STAT3", "LHX5", "TFAP2A","ZEB2", "ZIC5", "ZIC4", "TCF4", "ZIC3", "MXD4", "NEUROD6", "NFIB", "NEUROD1", "NEUROD2", "NFIA", "SATB1", "ZFP536", "ZIC1", "ZBTB18", "FOS", "NFIX", "ZIC2", "PAX2", "LBX1", "ZFP521", "SP5", "BHLHE22")
+DoHeatmap(object = organoids.combined, genes.use = carterPCGIN, slim.col.label = TRUE, remove.key = FALSE, group.label.rot = 45, cex.row =5, group.cex =7.5)
+
+
+```
+
+
+#Is enrichr automatable, aswell as the heatmaps, this would be a nice way to validate population markers
+
+#I should check out monocle, once im sure of my populations
+#rmarkdown::render('20190128_Organoids_CCA.Rmd', output_format = 'html_document')
+#rmarkdown::render('20190124_Organoids_CCA.Rmd', output_format = 'pdf_document')
+#above will compile manually and skip certain compile errors
+
+
+#VlnPlot(object=organoids.combined, features.plot=c("percent.mito", "CALB1")) I need to think about this!
+
+#Is it possible to project gene expression data onto a population-coloured tsne? Also to colour code the tsne based on mito gene expression or umi counts would be nice.
+#I should examine whether there is a way for seurat to allow me to look at correlates ie what cells also express if they are expressing FOXP2/CALB1 etc. I surely can identify and subset these. Perhaps I need to dig into var.genes or organoids.combined@scale.data
+#I should look into clustree for simulating iterations of clustering, this could really help with my problem 4 cluster
+#I should examine clusterProfiler which does similar things to enrichr but from R/command line, reccomended by Devi
+#grep("orf", organoids.combined@var.genes) searches organoids.combined@var.genes for anything with orf in it
+#allgenes<-rownames(organoids.combined@scale.data)
+#Should examine scSEQ ABA data and also carter/lake data.
+#I should check out featureplots with two colours on seurat website
+#I should try the dotplot functions, but I first should attempt to classify or at least label "populations"
+#I should try and play with the resolution of the tsnes 
+#I could consider trying to use the same number of cells to see i5f I get the same numbers of clusters 
+#I should try and play with cutting back of nGene/nUmi and Mitos with cell type markers, particular Calb+ as PCs may be lost as super-metabolically active.
+#I should consider using umap for clustering/projection instead of/in addition to tsne
+#I should do DE/find pop markers on 1vs4, 2vs5 etc and maybe subset and DE
+#organoids.combined.markers_cluster0 <- subset(organoids.combined.markers, organoids.combined.markers$cluster== "Population 0", select=7)
+#~If I want to try and use clusterProfiler I will need to generate a universal/background list which I may be able to do by looking at all genes detected (in scale data?) and or by rerunning findmarkers(?) and relaxing the pct(?) parameter (0.1?) Check with D who may have code. Or I can rely on enrichr.
+#Findallmarkers will NOT just give statistically-significant markers - so I need to filter these based on a parameter. Should check this!
+#Can i do CCA with cellseek data using seurat and my data?
+#I should ask faby about the qc metrics to report/methods/multiple sequencing runs
+#What does error Error in if (all(data.gene == 0)) { :missing value where TRUE/FALSE needed mean? ie plot pcp2 gene not detected? 
+#Should chat with Fab/Dev about what logFC less than 1 and or negative mean?
+
+#NOT DETECTED
+#" "PCP2", "ALCH1A1", "FAT2"
+
+
+
+
+
