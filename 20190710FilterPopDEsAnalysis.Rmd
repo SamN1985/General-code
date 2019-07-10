@@ -1,0 +1,350 @@
+---
+title: "20190704_DE_population_automation"
+author: "Sam"
+date: "4 July 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list=ls())
+
+gc()
+
+devtools::install_github("BatadaLab/scID")
+library(enrichR)
+library(scID)
+library(dplyr)
+library(devtools)
+library(ggplot2)
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+listEnrichrDbs()
+
+```
+#Here I would like to try and automate the DE analysis that I have been doing using either PANTHER or ENRIRCHR. I have been manually selecting positive or negative values and p-value cutoffs. I should try and do this using R, not excel, and also try and pipe through a package for doing so (maybe enrichr or panther if it exists)
+
+
+```{r ok}
+#let's try and first import population 0 and play with filtering the values
+Pop0DE<-read.csv ("C:/Users/dpag0920/Documents/20190329_DE_Pop0STIMvsPop0CTRL.csv", header = T)
+boxplot(Pop0DE$p_val)
+boxplot(Pop0DE$avg_logFC)
+range(Pop0DE$avg_logFC)
+Pop0DEUP_inMG<-Pop0DE$avg_logFC[which(Pop0DE$avg_logFC>0)]
+range(Pop0DEUP_inMG)
+boxplot(Pop0DEUP_inMG)
+Pop0DEDOWN_inMG<-Pop0DE$avg_logFC[which(Pop0DE$avg_logFC<0)]
+range(Pop0DEDOWN_inMG)
+boxplot(Pop0DEDOWN_inMG)
+boxplot(Pop0DEUP_inMG, Pop0DEDOWN_inMG)
+
+#Can modify available databases to search here
+dbs<-c("GO_Biological_Process_2018", "Panther_2015", "Allen_Brain_Atlas_up")
+
+
+Pop0DEUP_inMG_genes<-Pop0DE$X[which(Pop0DE$avg_logFC>0)]
+Pop0DEUP_inMG_genes<-Pop0DE$X[which(Pop0DE$avg_logFC<0)]
+#I need to figure out how to add quotation marks to the gene entries for enrichr to take them
+
+Pop0DEUP_inMG2<-as.character(Pop0DEUP_inMG_genes)
+PopZeroMGUP<-enrichr(Pop0DEUP_inMG2, "GO_Biological_Process_2018")
+#Or
+PopZeroMGUP<-enrichr(Pop0DEUP_inMG2, dbs)
+
+#############################
+#Population 1
+
+Pop1DE<-read.csv ("C:/Users/dpag0920/Documents/20190311_DE_Pop1STIMvsPop1CTRL.csv", header = T)
+Pop1DEUP_inMG<-Pop1DE$avg_logFC[which(Pop1DE$avg_logFC>0)]
+Pop1DEDOWN_inMG<-Pop1DE$avg_logFC[which(Pop1DE$avg_logFC<0)]
+Pop1DEUP_inMG_genes<-Pop1DE$X[which(Pop1DE$avg_logFC>0)]
+Pop1DEDOWN_inMG_genes<-Pop1DE$X[which(Pop1DE$avg_logFC<0)]
+
+
+boxplot(Pop1DEUP_inMG, Pop1DEDOWN_inMG)
+
+
+Pop1DEUP_inMG2<-as.character(Pop1DEUP_inMG_genes)
+PopOneMGUP<-enrichr(Pop1DEUP_inMG2, dbs)
+
+Pop1DEDOWN_inMG2<-as.character(Pop1DEDOWN_inMG_genes)
+PopOneMGDOWN<-enrichr(Pop1DEDOWN_inMG2, dbs)
+
+
+
+#################################
+#Population 2
+Pop2DE<-read.csv ("C:/Users/dpag0920/Documents/20190311_DE_Pop2STIMvsPop2CTRL.csv", header = T)
+Pop2DEUP_inMG<-Pop2DE$avg_logFC[which(Pop2DE$avg_logFC>0)]
+Pop2DEDOWN_inMG<-Pop2DE$avg_logFC[which(Pop2DE$avg_logFC<0)]
+Pop2DEUP_inMG_genes<-Pop2DE$X[which(Pop2DE$avg_logFC>0)]
+Pop2DEDOWN_inMG_genes<-Pop2DE$X[which(Pop2DE$avg_logFC<0)]
+
+
+boxplot(Pop2DEUP_inMG, Pop2DEDOWN_inMG)
+
+
+Pop2DEUP_inMG2<-as.character(Pop2DEUP_inMG_genes)
+PopTwoMGUP<-enrichr(Pop2DEUP_inMG2, dbs)
+
+Pop2DEDOWN_inMG2<-as.character(Pop1DEDOWN_inMG_genes)
+PopTwoMGDOWN<-enrichr(Pop2DEDOWN_inMG2, dbs)
+
+
+
+
+
+
+#################################
+#Population 3
+Pop3DE<-read.csv ("C:/Users/dpag0920/Documents/20190311_DE_Pop3STIMvsPop3CTRL.csv", header = T)
+Pop3DEUP_inMG<-Pop3DE$avg_logFC[which(Pop3DE$avg_logFC>0)]
+Pop3DEDOWN_inMG<-Pop3DE$avg_logFC[which(Pop3DE$avg_logFC<0)]
+Pop3DEUP_inMG_genes<-Pop3DE$X[which(Pop3DE$avg_logFC>0)]
+Pop3DEDOWN_inMG_genes<-Pop3DE$X[which(Pop3DE$avg_logFC<0)]
+
+
+boxplot(Pop3DEUP_inMG, Pop3DEDOWN_inMG)
+
+
+Pop3DEUP_inMG2<-as.character(Pop3DEUP_inMG_genes)
+PopThreeMGUP<-enrichr(Pop3DEUP_inMG2, dbs)
+
+Pop3DEDOWN_inMG2<-as.character(Pop3DEDOWN_inMG_genes)
+PopThreeMGDOWN<-enrichr(Pop3DEDOWN_inMG2, dbs)
+
+
+
+##############################################
+#################################
+#Population 4
+Pop4DE<-read.csv ("C:/Users/dpag0920/Documents/20190311_DE_Pop4STIMvsPop4CTRL.csv", header = T)
+Pop4DEUP_inMG<-Pop4DE$avg_logFC[which(Pop4DE$avg_logFC>0)]
+Pop4DEDOWN_inMG<-Pop4DE$avg_logFC[which(Pop4DE$avg_logFC<0)]
+Pop4DEUP_inMG_genes<-Pop4DE$X[which(Pop4DE$avg_logFC>0)]
+Pop4DEDOWN_inMG_genes<-Pop4DE$X[which(Pop4DE$avg_logFC<0)]
+
+
+boxplot(Pop4DEUP_inMG, Pop4DEDOWN_inMG)
+
+
+Pop4DEUP_inMG2<-as.character(Pop4DEUP_inMG_genes)
+PopFourMGUP<-enrichr(Pop4DEUP_inMG2, dbs)
+
+Pop4DEDOWN_inMG2<-as.character(Pop4DEDOWN_inMG_genes)
+PopFourMGDOWN<-enrichr(Pop4DEDOWN_inMG2, dbs)
+
+
+
+##############################################
+
+#################################
+#Population 5
+Pop5DE<-read.csv ("C:/Users/dpag0920/Documents/20190311_DE_Pop5STIMvsPop5CTRL.csv", header = T)
+Pop5DEUP_inMG<-Pop5DE$avg_logFC[which(Pop5DE$avg_logFC>0)]
+Pop5DEDOWN_inMG<-Pop5DE$avg_logFC[which(Pop5DE$avg_logFC<0)]
+Pop5DEUP_inMG_genes<-Pop5DE$X[which(Pop5DE$avg_logFC>0)]
+Pop5DEDOWN_inMG_genes<-Pop5DE$X[which(Pop5DE$avg_logFC<0)]
+
+
+boxplot(Pop5DEUP_inMG, Pop5DEDOWN_inMG)
+
+
+Pop5DEUP_inMG2<-as.character(Pop5DEUP_inMG_genes)
+PopFiveMGUP<-enrichr(Pop5DEUP_inMG2, dbs)
+
+Pop5DEDOWN_inMG2<-as.character(Pop5DEDOWN_inMG_genes)
+PopFiveMGDOWN<-enrichr(Pop5DEDOWN_inMG2, dbs)
+
+
+
+##############################################
+
+#################################
+#Population 6
+Pop6DE<-read.csv ("C:/Users/dpag0920/Documents/20190311_DE_Pop6STIMvsPop6CTRL.csv", header = T)
+Pop6DEUP_inMG<-Pop6DE$avg_logFC[which(Pop6DE$avg_logFC>0)]
+Pop6DEDOWN_inMG<-Pop6DE$avg_logFC[which(Pop6DE$avg_logFC<0)]
+Pop6DEUP_inMG_genes<-Pop6DE$X[which(Pop6DE$avg_logFC>0)]
+Pop6DEDOWN_inMG_genes<-Pop6DE$X[which(Pop6DE$avg_logFC<0)]
+
+
+boxplot(Pop6DEUP_inMG, Pop6DEDOWN_inMG)
+
+
+Pop6DEUP_inMG2<-as.character(Pop6DEUP_inMG_genes)
+PopSixMGUP<-enrichr(Pop6DEUP_inMG2, dbs)
+
+Pop6DEDOWN_inMG2<-as.character(Pop6DEDOWN_inMG_genes)
+PopSixMGDOWN<-enrichr(Pop6DEDOWN_inMG2, dbs)
+
+
+
+##############################################
+
+#################################
+#Population 7
+Pop7DE<-read.csv ("C:/Users/dpag0920/Documents/20190311_DE_Pop7STIMvsPop7CTRL.csv", header = T)
+Pop7DEUP_inMG<-Pop7DE$avg_logFC[which(Pop7DE$avg_logFC>0)]
+Pop7DEDOWN_inMG<-Pop7DE$avg_logFC[which(Pop7DE$avg_logFC<0)]
+Pop7DEUP_inMG_genes<-Pop7DE$X[which(Pop7DE$avg_logFC>0)]
+Pop7DEDOWN_inMG_genes<-Pop7DE$X[which(Pop7DE$avg_logFC<0)]
+
+
+boxplot(Pop7DEUP_inMG, Pop7DEDOWN_inMG)
+
+
+Pop7DEUP_inMG2<-as.character(Pop7DEUP_inMG_genes)
+PopSevenMGUP<-enrichr(Pop7DEUP_inMG2, dbs)
+
+Pop7DEDOWN_inMG2<-as.character(Pop7DEDOWN_inMG_genes)
+PopSevenMGDOWN<-enrichr(Pop7DEDOWN_inMG2, dbs)
+
+
+
+##############################################
+
+#################################
+#Population 8
+Pop8DE<-read.csv ("C:/Users/dpag0920/Documents/20190311_DE_Pop8STIMvsPop8CTRL.csv", header = T)
+Pop8DEUP_inMG<-Pop8DE$avg_logFC[which(Pop8DE$avg_logFC>0)]
+Pop8DEDOWN_inMG<-Pop8DE$avg_logFC[which(Pop8DE$avg_logFC<0)]
+Pop8DEUP_inMG_genes<-Pop8DE$X[which(Pop8DE$avg_logFC>0)]
+Pop8DEDOWN_inMG_genes<-Pop8DE$X[which(Pop8DE$avg_logFC<0)]
+
+
+boxplot(Pop8DEUP_inMG, Pop8DEDOWN_inMG)
+
+
+Pop8DEUP_inMG2<-as.character(Pop8DEUP_inMG_genes)
+PopEightMGUP<-enrichr(Pop8DEUP_inMG2, dbs)
+
+Pop8DEDOWN_inMG2<-as.character(Pop8DEDOWN_inMG_genes)
+PopEightMGDOWN<-enrichr(Pop8DEDOWN_inMG2, dbs)
+
+
+
+##############################################
+
+#################################
+#Population 9
+Pop9DE<-read.csv ("C:/Users/dpag0920/Documents/20190311_DE_Pop9STIMvsPop9CTRL.csv", header = T)
+Pop9DEUP_inMG<-Pop9DE$avg_logFC[which(Pop9DE$avg_logFC>0)]
+Pop9DEDOWN_inMG<-Pop9DE$avg_logFC[which(Pop9DE$avg_logFC<0)]
+Pop9DEUP_inMG_genes<-Pop9DE$X[which(Pop9DE$avg_logFC>0)]
+Pop9DEDOWN_inMG_genes<-Pop9DE$X[which(Pop9DE$avg_logFC<0)]
+
+
+boxplot(Pop9DEUP_inMG, Pop9DEDOWN_inMG)
+
+
+Pop9DEUP_inMG2<-as.character(Pop9DEUP_inMG_genes)
+PopNineMGUP<-enrichr(Pop9DEUP_inMG2, dbs)
+
+Pop9DEDOWN_inMG2<-as.character(Pop9DEDOWN_inMG_genes)
+PopNineMGDOWN<-enrichr(Pop9DEDOWN_inMG2, dbs)
+
+
+
+##############################################
+
+
+#################################
+#Population 10
+Pop10DE<-read.csv ("C:/Users/dpag0920/Documents/20190311_DE_Pop10STIMvsPop10CTRL.csv", header = T)
+Pop10DEUP_inMG<-Pop10DE$avg_logFC[which(Pop10DE$avg_logFC>0)]
+Pop10DEDOWN_inMG<-Pop10DE$avg_logFC[which(Pop10DE$avg_logFC<0)]
+Pop10DEUP_inMG_genes<-Pop10DE$X[which(Pop10DE$avg_logFC>0)]
+Pop10DEDOWN_inMG_genes<-Pop10DE$X[which(Pop10DE$avg_logFC<0)]
+
+
+boxplot(Pop10DEUP_inMG, Pop10DEDOWN_inMG)
+
+
+Pop10DEUP_inMG2<-as.character(Pop10DEUP_inMG_genes)
+PopTenMGUP<-enrichr(Pop10DEUP_inMG2, dbs)
+
+Pop10DEDOWN_inMG2<-as.character(Pop10DEDOWN_inMG_genes)
+PopTenMGDOWN<-enrichr(Pop10DEDOWN_inMG2, dbs)
+
+
+
+#################################
+#Population 11
+Pop11DE<-read.csv ("C:/Users/dpag0920/Documents/20190311_DE_Pop11STIMvsPop11CTRL.csv", header = T)
+Pop11DEUP_inMG<-Pop11DE$avg_logFC[which(Pop11DE$avg_logFC>0)]
+Pop11DEDOWN_inMG<-Pop11DE$avg_logFC[which(Pop11DE$avg_logFC<0)]
+Pop11DEUP_inMG_genes<-Pop11DE$X[which(Pop11DE$avg_logFC>0)]
+Pop11DEDOWN_inMG_genes<-Pop11DE$X[which(Pop11DE$avg_logFC<0)]
+
+
+boxplot(Pop11DEUP_inMG, Pop11DEDOWN_inMG)
+
+
+Pop11DEUP_inMG2<-as.character(Pop11DEUP_inMG_genes)
+PopElevenMGUP<-enrichr(Pop11DEUP_inMG2, dbs)
+
+Pop11DEDOWN_inMG2<-as.character(Pop11DEDOWN_inMG_genes)
+PopElevenMGDOWN<-enrichr(Pop11DEDOWN_inMG2, dbs)
+
+
+
+#################################
+#Population 12
+Pop12DE<-read.csv ("C:/Users/dpag0920/Documents/20190311_DE_Pop12STIMvsPop12CTRL.csv", header = T)
+Pop12DEUP_inMG<-Pop12DE$avg_logFC[which(Pop12DE$avg_logFC>0)]
+Pop12DEDOWN_inMG<-Pop12DE$avg_logFC[which(Pop12DE$avg_logFC<0)]
+Pop12DEUP_inMG_genes<-Pop12DE$X[which(Pop12DE$avg_logFC>0)]
+Pop12DEDOWN_inMG_genes<-Pop12DE$X[which(Pop12DE$avg_logFC<0)]
+
+
+boxplot(Pop12DEUP_inMG, Pop12DEDOWN_inMG)
+
+
+Pop12DEUP_inMG2<-as.character(Pop12DEUP_inMG_genes)
+PopTwelveMGUP<-enrichr(Pop12DEUP_inMG2, dbs)
+
+Pop12DEDOWN_inMG2<-as.character(Pop12DEDOWN_inMG_genes)
+PopTwelveMGDOWN<-enrichr(Pop12DEDOWN_inMG2, dbs)
+
+
+
+##############################################
+
+#should refine databases and search through population lists
+
+#lets try and reexamine the gross DE between MG/NonMG cohors
+MGvsCTRL<-read.table("C:/Users/dpag0920/Documents/20190627DE_treatment.csv", header = T, sep = ",")
+boxplot(MGvsCTRL$p_val)
+
+boxplot(MGvsCTRL$avg_logFC)
+range(MGvsCTRL$avg_logFC)
+
+MGvsCTRLUP_inMG<-MGvsCTRL$avg_logFC[which(MGvsCTRL$avg_logFC>0)]
+range(MGvsCTRLUP_inMG)
+boxplot(MGvsCTRLUP_inMG)
+
+MGvsCTRLDOWN_inMG<-MGvsCTRL$avg_logFC[which(MGvsCTRL$avg_logFC<0)]
+range(MGvsCTRLDOWN_inMG)
+boxplot(MGvsCTRLDOWN_inMG)
+
+
+MGvsCTRLUP_inMG<-MGvsCTRL$X[which(MGvsCTRL$avg_logFC>0)]
+MGUPgenes<-as.character(MGvsCTRLUP_inMG)
+
+MGvsCTRLDOWN_inMG<-MGvsCTRL$X[which(MGvsCTRL$avg_logFC<0)]
+MGDOWNgenes<-as.character(MGvsCTRLDOWN_inMG)
+
+MGUP<-enrichr(MGUPgenes, dbs)
+MGDOWN<-enrichr(MGDOWNgenes, dbs)
+
+
+
+```
+
+
+
+write.csv(enriched0,"20190222Pop0of12_enrichr_ABA.csv")
