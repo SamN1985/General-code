@@ -1,0 +1,709 @@
+Sam Nayler <sam.nayler@gmail.com>
+	
+09:27 (0 minutes ago)
+	
+to me
+---
+title: "20190418_scID_testing"
+author: "Sam N"
+date: "18/04/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+devtools::install_github("BatadaLab/scID")
+library(scID)
+library(Matrix)
+library(Seurat)
+library(dplyr)
+library(cowplot)
+
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("MAST")
+```
+
+```{r starting}
+#I will need to decide on which of three methods to use; 1) Canonical usage (two datasets where cell grouping for one of the datasets, the reference dataset, is known) 2) Single reference, multiple targets (where I extract markers from the known populations) 3) User-specified cluster gene signatures
+rm(list=ls())
+gc()
+Carter.raw.data<-Read10X(data.dir = "/Users/samnayler/Desktop/Example_data/scIDCarter/nUMINorm_data/")
+CarternUMInorm<-CreateSeuratObject(counts = Carter.raw.data, project = "scID", min.cells = 3, min.features = 200)
+#'Barcode file missing!' This barcode is actually there. Some users report that this error will because by looking at unzipped/zipped folders - I have tested this no avail. 
+#The genes.tsv file is actually missing! What if I read in the matrix file? CORRECTED NOW
+library(Matrix)
+setwd("/Users/samnayler/Desktop/Example_data/scIDCarter/nUMINorm_data/unzipped")
+m = readMM("matrix.mtx")
+#M has no gene columns but is a sparse matrix!
+#What if I try looking at the annotated_unnormdata instead?
+Carter.raw.data2<-Read10X(data.dir = "/Users/samnayler/Desktop/Example_data/scIDCarter/annotated_Unnormdata/")
+CarterUnnorm<-CreateSeuratObject(counts = Carter.raw.data2, project = "scID", min.cells = 3, min.features = 200)
+GetAssay(CarternUMInorm, assay = "RNA")
+
+cart<-subset(CarternUMInorm, subset = nFeature_RNA > 500)
+cart<-NormalizeData(cart, verbose = FALSE)
+cart<-FindVariableFeatures(cart, selection.method = "vst", nFeatures =1000)
+
+
+cart<-ScaleData(cart, verbose = FALSE)
+cart<-RunPCA (cart, npcs = 30, verbose = FALSE)
+cart<-RunUMAP (cart, reduction = "pca", dims = 1:12)
+cart<-FindNeighbors(cart, reduction = "pca", dims = 1:20)
+```
+```{r find clusters}
+cart<-FindClusters(cart, resolution = 0.5)
+p1 <-DimPlot(cart, reduction = "umap", group.by = "seurat_clusters")
+p2 <-DimPlot(cart, reduction = "umap", label = TRUE)
+plot_grid (p1,p2)
+```
+```{r vis clusters}
+#To visualize the two conditions side-by-side, we can use the split.by argument to show each condition colored by cluster.
+
+#DimPlot(organoids.combined, reduction = "umap", split.by = "seurat_clusters")
+           
+ExportToCellbrowser(cart, "wd", dataset.name = "20190702CartnUMInormnormscaled",reductions = "umap", markers.file = NULL, cluster.field = "Cluster", cb.dir = NULL, port = NULL, skip.expr.matrix = FALSE, skip.metadata = FALSE, skip.reductions = FALSE)
+
+
+ExportToCellbrowser(Carter.raw.data2, "wd", dataset.name = "20190702scIDCarterUnnorm", reductions = NULL, markers.file = NULL, cluster.field = NULL, cb.dir = NULL, port = NULL, skip.expr.matrix = FALSE, skip.metadata = FALSE, skip.reductions = FALSE)
+
+```
+
+```{ r scid processing}
+target_gem <- readRDS(file="~/Desktop/Example data/scID/target_gem.rds")
+
+reference_gem <- readRDS(file="~/Desktop/Example data/scID/reference_gem.rds")
+reference_clusters <- readRDS(file="~/Desktop/Example data/scID/reference_clusters.rds")
+
+#outdated with new version - scID_output <- scid_multiclass(target_gem = target_gem, reference_gem = reference_gem, reference_clusters = reference_clusters, logFC = 0.01, likelihood_threshold = 0.01)
+
+scID_output <- scid_multiclass(target_gem = target_gem, reference_gem = reference_gem, reference_clusters = reference_clusters, logFC = 0.5, only_pos = FALSE, estimate_weights_from_target = FALSE)
+
+make_heatmap(gem = reference_gem, labels = reference_clusters, markers = scID_output$markers)
+
+```
+
+```{rf}
+
+
+library(biomaRt)
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+genes = allgenes
+genes = getLDS(attributes = c("mgi_symbol"), filters = "mgi_symbol", values = genes ,mart = mouse, attributesL = c("hgnc_symbol","chromosome_name", "start_position"), martL = human, uniqueRows=T)
+#This one works! Now I just need to sort it. Also I dont need the chromosome name and start position
+filters = listFilters(ensembl)
+
+#try and modify to include mouse orthologes?
+library(biomaRt)
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+genes = allgenes
+genes = getLDS(attributes = c("mgi_symbol"), filters = "mgi_symbol", values = genes,mart = mouse, attributesL = c("hgnc_symbol"), martL = human, uniqueRows=T)
+
+```
+
+```{r  lets try orthologues instead of mgi}
+mart1 = useMart(biomart = "ENSEMBL_MART_ENSEMBL", host="www.ensembl.org", path = "/biomart/martservice", dataset="hsapiens_gene_ensembl")
+mart2 = useMart(biomart = "ENSEMBL_MART_ENSEMBL", host="www.ensembl.org", path = "/biomart/martservice", dataset="mmusculus_gene_ensembl")
+ 
+human_id <- read.table(file="~/Desktop/allgenes.csv", sep=",", header=T, row.names = 1)
+human_ids <- as.character(human_id$x)
+
+
+# human / mouse
+orth.human2 <-getLDS(attributes=c("hgnc_symbol"),
+       filters="hgnc_symbol", values=human_id3, mart=mart1,
+       attributesL=c("mgi_symbol"), martL=mart2, filtersL = "with_hsapiens_homolog", valuesL = T)
+ 
+#works best
+
+```
+
+```{r stuff}
+#significant processing before can feed into scID
+#VLOOKUP in excel gave me corresponding HUMAN-MOUSE entries, I now need to count the #N/As, purge the #N/As and rerun. I should also consider trying the mouse orthologs filter to check if it is as effective as mgi?
+#have tried purging in excel, but slow. can also try naomit()
+
+```
+
+```{r test merge}
+
+
+
+#this is nayler_gem which I need to merge
+
+#lets do a test merge
+
+authors <- data.frame(
+    surname = c("Tukey", "Venables", "Tierney", "Ripley", "McNeil"),
+    nationality = c("US", "Australia", "US", "UK", "Australia"),
+    retired = c("yes", rep("no", 4)))
+books <- data.frame(
+    name = c("Tukey", "Venables", "Tierney", "Ripley", "Ripley", "McNeil"),
+    title = c("Exploratory Data Analysis",
+              "Modern Applied Statistics ...",
+              "LISP-STAT",
+              "Spatial Statistics", "Stochastic Simulation",
+               "Interactive Data Analysis"),
+    other.author = c(NA, "Ripley", NA, NA, NA, NA))
+
+merge(authors, books, by.x="surname", by.y="name")
+merge(books, authors, by.x="name", by.y="surname")
+
+
+
+df1<- data.frame (
+key = c('aaa', 'bbb', 'ccc' ), field 1 = c(v3, 1, 4 )
+)
+df2 <-data.frame(
+key = c( 'aaa', 'bbb', 'ccc' )
+ ,field2 = c( 2, 1, 7)
+)
+```
+
+```{r latest from biomart}
+mart1 = useMart(biomart = "ENSEMBL_MART_ENSEMBL", host="www.ensembl.org", path = "/biomart/martservice", dataset="hsapiens_gene_ensembl")
+mart2 = useMart(biomart = "ENSEMBL_MART_ENSEMBL", host="www.ensembl.org", path = "/biomart/martservice", dataset="mmusculus_gene_ensembl")
+ 
+human_id <- read.table(file="~/Desktop/allgenes.csv", sep=",", header=T, row.names = 1)
+human_ids <- as.character(human_id$x)
+human_id2<-read.table(file=("~/Desktop/Example_data/scIDNayler/20190702_Iteration1/humantomouse.tsv"))
+human_id2 <- as.character(human_id2$x)
+#This throws a weird error actually deleting humanid2
+#If I just try and use humanid2[1] it returns nothing even though I can see 19309 of 2513 variables (the cell entries are interfereing I think)
+#Try and subset
+human_id3<-human_id2[1]
+#Test if adding a column and saving as csv changes things
+human_id4<-read.table(file=("~/Desktop/Example_data/scIDNayler/20190702_Iteration1/humantomousecopy.csv"))
+human_id5 <- as.character(human_id4$x)
+
+# human / mouse
+orth.human2 <-getLDS(attributes=c("hgnc_symbol"),
+       filters="hgnc_symbol", values=human_id3, mart=mart1,
+       attributesL=c("mgi_symbol"), martL=mart2, filtersL = "with_hsapiens_homolog", valuesL = T)
+       
+       orth.human3 <-getLDS(attributes=c("hgnc_symbol", "with_mmusculus_homolog"),
+       filters="hgnc_symbol", values=human_id3, mart=mart1,
+       attributesL=c("mgi_symbol")("with_mmusculus_homolog"),  martL=mart2, filtersL = "with_hsapiens_homolog", valuesL = T)
+ #how can I also use with_mmusculus_homolog  to check if I can get more matches?
+ listFilters(mart = mart)
+#works best
+
+ #merge the mgi , hgnc symbol dataframe from biomart with your data gem. merge()
+#Then you just need to filter the gene symbols in your dataset to match to the ones form the carter gem using dplr.
+#naylgenes 
+#naylegenes<-read.csv("~/Desktop/20190703_allgenes_tomouse.csv")
+naylegenes<-read.csv("~/Desktop/20190704_allgenes_tomouse.csv", header = T) #now with NAs to match column number with GEM
+#nayleexrp reads out with Vxxxx, why? naylegenes does not
+nayleexrp<-read.table("~/Desktop/Example_data/scIDNayler/20190702_Iteration1/humantomouse.tsv", header=T) 
+mergednayl<-merge(naylegenes, nayleexrp, by.x="gene", by.y="gene")
+mergednayl2<-mergednayl[-1]
+#do symbols need to be in matching order between ref and target gem?
+write.csv(mergednayl2, "20190705naylergemmouseid.csv")
+
+```
+
+
+```{r r}
+
+#need to read these as rds files 
+
+
+#Carter_reference_clusters<-read.csv("~/Desktop/Example_data/scIDCarter/Final/carter_reference_cluster.csv", header = T)
+saveRDS(Carter_reference_clusters,file ="~/Desktop/Example_data/scIDCarter/Final/20190705CarterReferenceClusters.rds")
+reference_clusters <- readRDS(file="~/Desktop/Example_data/scIDCarter/Final/20190705CarterReferenceClusters.rds")
+#Note some additional processing appears necessary for the reference_clusters
+
+Carter_gem<-read.table("~/Desktop/Example_data/scIDCarter/Final/20190702exprmatCarterREFGEM.tsv", header = T)
+saveRDS(Carter_gem,file ="~/Desktop/Example_data/scIDCarter/Final/20190705CarterGEM.rds")
+reference_gem <- readRDS(file="~/Desktop/Example_data/scIDCarter/Final/20190705CarterGEM.rds")
+
+saveRDS(mergednayl2, file ="~/Desktop/Example_data/scIDCarter/Final/20190705TargetNaylerGEMMouseids.rds")
+target_gem <- readRDS (file="~/Desktop/Example_data/scIDCarter/Final/20190705TargetNaylerGEMMouseids.rds")
+#Note latest version of this is from #write.csv(mergednayl2, "20190705naylergemmouseid.csv")
+
+
+
+scID_outputCarterNayler <- scid_multiclass(target_gem = target_gem, reference_gem = reference_gem, reference_clusters = reference_cluster, logFC = 0.5, only_pos = FALSE, estimate_weights_from_target = FALSE)
+
+#Error in scid_multiclass(target_gem = target_gem, reference_gem = reference_gem,  : 
+  #None  of the reference cells has a cluster ID. Please check the reference_clusters list provided.
+
+head(reference_clusters)
+#1 E10A_AAACCGTGATTCTC-1  6
+#2 E10A_AAACCGTGGGAGCA-1 18
+#3 E10A_AAACCGTGTTTACC-1  6
+#5 E10A_AAACGCTGAGGTCT-1 39
+#4 E10A_AAACGCACAGTGTC-1  6
+#6 E10A_AAAGCAGAGGAAGC-1 18
+ dim(reference_clusters)
+#[1] 39245     2
+
+#Let's try importing the actual test reference cluster and seeing how it is different to mine
+authors_ref_clust<-readRDS(file = "~/Desktop/Example_data/scID/reference_clusters.rds")
+head(authors_ref_clust)
+#AAACCTGAGACGCTTT AAACCTGAGATCTGCT AAACCTGAGGTCATCT AAACCTGCAAGAGTCG AAACCTGCACACATGT AAACCTGCACATGGGA 
+#               8                7                9                1               10                0 
+#Levels: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14
+#this is a factor, not a data.frame - could this be the difference? Test...
+reference_cluster3<-as.factor(reference_clusters)
+head(reference_cluster3)
+#....4, 7, 37, 4, 29, 33, 4, 2, 31, 10, 2, 31, 32, 10, 32, 4, 2, 2, 4, 19, 2, 37, \n37, 2, 4, 4, 4, 7, 4, 4, 40, 37, 2, 37, 37, 37, 48, 37, 2, 37, 37, 31, 37, 32, 4, 29, 4, 7, 4, 29, 4, 10, 37, 7, 32, 37, 2, 37, 37, 37, 7) 
+#2 Levels: 1:39245 
+#No difference! But, strangely MY reference_clusters appears in the global environment as data, whereas if  I read in the TEST data or my modified factor reference_cluster, they both appear under Values - the difference between that the actual test data is a large factor (9128 elements) and reads out if I test head(reference_clusters2) as the cellID and population, if I head(reference_clusters3, my modified as.factor reference_clusters, I get a weird vector string) WHAT is going on!? There also appears to be a further difference between reference_clusters and reference_clusters2 which is the data is transposed?
+
+#Could I try the gather function to transpose using tidr?
+#reference_clusters4<-spread(reference_clusters)
+
+write.csv(reference_clusters2,  "refclust2.csv")
+#If I take the authors reference clusters they look in the same format as mine going in! However they look different as RDS files! Mine also populates with a capital X in the cellID column whereas theres does not, after conversion.
+
+#scID_outputCarterNayler <- scid_multiclass(target_gem = target_gem, reference_gem = reference_gem, reference_clusters = reference_clusters2, logFC = 0.5, only_pos = FALSE, estimate_weights_from_target = FALSE)
+#if I feed in nayler/carter reference/target gems but the scID reference_cluster default file I still get the same error..
+#Should consider adding markers = x also (cerebellar genes
+#I need to ask Fab/Dev if there is a way to get unnormalized count table or TPM ETC
+
+
+#Lets try transposing a portion of the reference cluster entries
+Carter_reference_clusters_tran<-read.csv("~/Desktop/Example_data/scIDCarter/Final/carter_reference_cluster transposed.csv", header = T)
+saveRDS(Carter_reference_clusters_tran,file ="~/Desktop/Example_data/scIDCarter/Final/20190705CarterReferenceClusters_tran.rds")
+reference_clusters_tran <- readRDS(file="~/Desktop/Example_data/scIDCarter/Final/20190705CarterReferenceClusters_tran.rds")
+
+scID_outputCarterNayler <- scid_multiclass(target_gem = target_gem, reference_gem = reference_gem, reference_clusters = reference_clusters_tran, logFC = 0.5, only_pos = FALSE, estimate_weights_from_target = FALSE)
+
+#Error in scid_multiclass(target_gem = target_gem, reference_gem = reference_gem,  : 
+  #None  of the reference cells has a cluster ID. Please check the reference_clusters list provided
+#Same error as before!
+
+#let's try and transpose the reference_clusters 
+#transposed<-t(reference_clusters)
+
+
+#Let's try taking the file and changing the named factors OR Using as.list and setNames:
+#x = c("1", "a","b")
+#as.list(setNames(rep(as.numeric(x[1]), length(x) - 1), x[-1]))
+
+#names(factor)
+
+
+#Try converting file to a list, then saving as RDS
+#Carter_reference_clusters_renamed<-read.csv("~/Desktop/Example_data/scIDCarter/Final/carter_reference_cluster.csv", header = T)
+#head(Carter_reference_clusters_renamed)
+#Carter_reference_clusters_renamed2<-as.list(Carter_reference_clusters_renamed)
+
+
+#saveRDS(Carter_reference_clusters_renamed2,file="~/Desktop/Example_data/scIDCarter/Final/20190705CarterReferenceClustersAsLIST.rds")
+#reference_clusters_renamed_asLIST <- readRDS(file="~/Desktop/Example_data/scIDCarter/Final/20190705CarterReferenceClustersAsLIST.rds")
+#conversion works but does not translate to success with scIDmulticlass
+#What if I convert the list to a facor? is there a difference between a factor and large factor?
+
+#Carter_reference_clusters_renamedasLISTasFACTOR<-as.factor(Carter_reference_clusters_renamed2)
+#cartidslistfactor<-as.factor(Carter_reference_clusters_renamed2$X)
+#combinedfactors<-factor(c(as.character(cartidslistfactor), as.character(cartpopslistfactor)))
+#cartpopslistfactor<-as.factor(Carter_reference_clusters_renamed2$x)
+#This actually looks the closest so far, but I think that I have added some of the cellID probes in the wrong place or a list that is twice as long (as in the factors follow each other). Can I try renaming one factor? 
+#combinedfactors2<-factor(c(as.character(Carter_reference_clusters_renamed$X), as.character(Carter_reference_clusters_renamed$x)))
+library(plyr)
+#cartpopslistfactor2<-revalue(cartpopslistfactor, (cartidslistfactor))
+#Stop here for friday
+```
+
+```{r resume monday}
+#Yes just name the factor with the population id with the cell id.
+
+Cartcellnames<-Carter_reference_clusters[1]
+head(Cartcellnames)
+Cartpops<-Carter_reference_clusters[2]
+Cartfac<-as.factor(Carter_reference_clusters$x)
+
+#Note I may have to remove the intermediate step and use this to make a factor
+
+#Yes just name the factor with the population id with the cell id. I need to change the LABELS, not levels!
+#https://www.statmethods.net/input/valuelabels.html
+
+
+#mydata$v1 <- factor(mydata$v1,
+#levels = c(1,2,3),
+#labels = c("red", "blue", "green"))
+
+     
+                                                                       
+#No! Cartfac2<-factor(Cartfac, levels = c(Carter_reference_clusters$x), labels = c(Carter_reference_clusters$X))
+Cartfac2<-factor(Cartfac, levels = Carter_reference_clusters$x, labels = Carter_reference_clusters$X)
+
+
+
+#This is very close but I think is back to front and i lose my population level info!!! 
+#write.csv(Cartfac2, "20190708cartfac2.csv") #Ive lost the population level info here!
+#If I try and manually paste in the corresponding population level info
+#manual<-read.csv("~/Desktop/20190708cartfac2MANUAL.csv", header = T)
+#Convert from a dataframe to a factor?
+#manual2<-as.factor(manual)
+#This doesnt work either I still get a Factor with 2 levels
+         
+#What about this?
+#lol<-levels(Cartfac)<-Carter_reference_clusters$x
+#Still does not give me LABELS!
+#labels(Cartfac)<-Carter_reference_clusters$X
+
+                      
+#Lets make a new factor and try and rename the labels
+#lol<-c("1", "2", "3")
+#lol2<-as.factor(lol)                                    
+#lol3<-factor(lol2, levels = c(1,2,3), labels = c("red", "blue", "green"))   
+#colours<-c("purple", "yellow", "black") 
+#lol4<-factor(lol2, levels = c(1,2,3), labels = colours)    
+
+
+
+                                    
+#Let's try and take my Cartfac and make a dataframe using Cartcellsnames
+#test<-data.frame(Cartcellnames, Cartfac)
+#saveRDS(test, file="~/Desktop/Example_data/scIDCarter/Final/20190708Cartfacmergeddf.rds")
+#reference_clusters <- readRDS(file="~/Desktop/Example_data/scIDCarter/Final/20190708Cartfacmergeddf.rds")
+#I get the same error here, perhaps it is because I am still running reference_clusters as a dataframe before scIDmulticlasss. Lets try and rename the labels and keep it as a factor
+```
+
+
+#This works!
+#20190709D!
+
+names(Cartfac)<-Carter_reference_clusters$X
+
+
+
+Cartfac3<-factor(Cartfac, levels = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48"))
+#This will sort the references into order by level, ascending
+
+
+saveRDS(Cartfac,file="~/Desktop/Example_data/scIDCarter/Final/20190709Cartfac.rds")
+Cartfac_reference_clusters <- readRDS(file="~/Desktop/Example_data/scIDCarter/Final/20190709Cartfac.rds")
+reference_clusters<-Cartfac_reference_clusters
+
+saveRDS(Cartfac3,file="~/Desktop/Example_data/scIDCarter/Final/20190709Cartfac3.rds")
+Cartfac_reference_clusters <- readRDS(file="~/Desktop/Example_data/scIDCarter/Final/20190709Cartfac3.rds")
+reference_clusters<-Cartfac_reference_clusters
+
+#If I run this I still get the same error message. Perhaps it is because the reference_gem has 70,000 cells and the reference_clusters are only 39245. I need to figure out how to throw out the non-overlapping cells! 
+#Dee suggested making a dataframe, transposing the id column and doing a merge
+
+length(Cartfac3)
+#[1] 39245
+length(reference_gem)
+#[1] 76750
+```
+
+```{r need to trim ref_gem }
+#Include only cells from Ref
+Cartercells<-colnames(Carter_gem)
+length(Cartercells)
+#76750
+
+#Need to try and make this a data.frame, not a factor before merging
+cartyourarse<-as.data.frame(Cartercells)
+head(cartyourarse)
+
+#         Cartercells
+#1                gene
+#2 E10A_AAACCGTGATTCTC
+#3 E10A_AAACCGTGGGAGCA
+#4 E10A_AAACCGTGTTTACC
+#5 E10A_AAACGCACAGTGTC
+#6 E10A_AAACGCTGAGGTCT
+
+#note, that the cellids do not have a dash and a number after them
+head(Carter_reference_clusters)
+                      X  x
+#1 E10A_AAACCGTGATTCTC-1  6
+#2 E10A_AAACCGTGGGAGCA-1 18
+#3 E10A_AAACCGTGTTTACC-1  6
+#4 E10A_AAACGCACAGTGTC-1  6
+#5 E10A_AAACGCTGAGGTCT-1 39
+#6 E10A_AAAGCAGAGGAAGC-1 18
+
+
+
+#Before I merge I think I need to transpose the reference_gem to get cell ids
+#mergedgemclus<-merge(Carter_reference_clusters, cartyourarse , by.x="X", by.y="Cartercells")
+
+#This merge at least functions but gives an object of 0 length, why? I need to trim the last character first
+
+#Carter_reference_clusterstrimmed<-substr(Carter_reference_clusters$X,1,nchar(Carter_reference_clusters$X)-1)
+#Must be a character vector!
+
+Carter_ref_clust_char<-as.character(Carter_reference_clusters$X)
+
+#I will need to trim the last character off the cell ids, it would also be good to know what this is
+
+Carter_ref_clust_char<-substr(Carter_ref_clust_char,1,nchar(Carter_ref_clust_char)-2)
+head(Carter_ref_clust_char)
+#"E10A_AAACCGTGATTCTC" "E10A_AAACCGTGGGAGCA" "E10A_AAACCGTGTTTACC" "E10A_AAACGCACAGTGTC" "E10A_AAACGCTGAGGTCT"
+#"E10A_AAAGCAGAGGAAGC"
+length(Carter_ref_clust_char)
+
+
+#39245
+#mergedclustref<-merge(Carter_ref_clust_char, cartyourarse, by.x="", by.y="Cartercells")
+#Because I have made a character vector there is no rowname, now that I have trimmed it maybe I can convert it to a data.frame
+Carter_ref_clust_char_df<-as.data.frame(Carter_ref_clust_char)
+mergedclustref<-merge(Carter_ref_clust_char_df, cartyourarse, by.x="Carter_ref_clust_char", by.y="Cartercells")
+
+head(mergedclustref)
+#  Carter_ref_clust_char
+#1   E10A_AAACCGTGATTCTC
+#2   E10A_AAACCGTGGGAGCA
+#3   E10A_AAACCGTGTTTACC
+#4   E10A_AAACGCACAGTGTC
+#5   E10A_AAACGCTGAGGTCT
+#6   E10A_AAAGCAGAGGAAGC
+
+
+str(mergedclustref )
+#'data.frame':	38758 obs. of  1 variable:
+#$ Carter_ref_clust_char: Factor w/ 39245 levels "E10A_AAACCGTGATTCTC",..: 1 2 3 4 5 6 7 8 9 10 ..
+
+
+#If I go back to the character vector that has trimmed cellids it has 39245 obs and should retain the pop id order, if I save it, paste in the pop ids and then save, I can read it in as a dataframe and go ahead and merge it with cartyourarse
+write.csv(Carter_ref_clust_char, file="~/Desktop/Example_data/scIDCarter/Final/20190709Carter_ref_clust_char.csv")
+#manually paste in and check corresponding populations
+
+Carter_ref_clust_char_addedpopsman<-read.csv(file="~/Desktop/Example_data/scIDCarter/Final/20190709Carter_ref_clust_char_addedpopsmanually.csv", header = T, sep ="")
+head(Carter_ref_clust_char_addedpopsman)
+
+#                    X  x
+#1 E10A_AAACCGTGATTCTC  6
+#2 E10A_AAACCGTGGGAGCA 18
+#3 E10A_AAACCGTGTTTACC  6
+#4 E10A_AAACGCACAGTGTC  6
+#5 E10A_AAACGCTGAGGTCT 39
+#6 E10A_AAAGCAGAGGAAGC 18
+
+#I can try and save this as an rds file and run multiclass, but if this doesnt work I will reconvert it to factor again.
+
+
+#saveRDS(Carter_ref_clust_char_addedpopsman,file ="~/Desktop/Example_data/scIDCarter/Final/20190709CartRefClusCharPopsMan.rds")
+#reference_clusters <- readRDS(file="~/Desktop/Example_data/scIDCarter/Final/20190709CartRefClusCharPopsMan.rds")
+
+#Error in scid_multiclass(target_gem = target_gem, reference_gem = Carter_gem,  : 
+#None  of the reference cells has a cluster ID. Please check the reference_clusters list provided.
+
+NewCartfac<-as.factor(Carter_ref_clust_char_addedpopsman$x)
+names(NewCartfac)<-Carter_ref_clust_char_addedpopsman$X
+saveRDS(NewCartfac,file ="~/Desktop/Example_data/scIDCarter/Final/20190709CartRefClusCharPopsManFAC.rds")
+reference_clusters <- readRDS(file="~/Desktop/Example_data/scIDCarter/Final/20190709CartRefClusCharPopsManFAC.rds")
+#This runs! But shortly after I get an error message 'Error in rowSums(target_gem) : 'x' must be numeric'
+#The first column of target_gem is just numbers. I can try and cut this.
+target_gem2<-target_gem[,-1]
+```
+
+```{r scID code itself}
+##### Try running code
+scID_outputCarterNayler <- scid_multiclass(target_gem = target_gem2, reference_gem = Carter_gem, reference_clusters = reference_clusters, logFC = 0.5, only_pos = FALSE, estimate_weights_from_target = FALSE)
+
+make_heatmap(gem = Carter_gem, labels = reference_clusters, markers = scID_outputCarterNayler$markers)
+
+#Error in seq.default(-m, m, length.out = n + 1) : 
+  #'from' must be a finite number
+#In addition: Warning messages:
+#1: In min(x, na.rm = T) : no non-missing arguments to min; returning Inf
+#2: In max(x, na.rm = T) : no non-missing arguments to max; returning -Inf
+
+
+#scID_outputCarterNayler<- scid_multiclass(target_gem = Carter_gem, reference_gem = Carter_gem, reference_clusters = reference_clusters, logFC = 0.5, only_pos = FALSE, estimate_weights_from_target = FALSE,normalize_reference=FALSE) 
+
+
+#oh noes! this worked but I ran the target gem vs itself
+
+#I will try and run with normalize_reference=FALSE, but what does this mean for the (normalized?) target data! Ideally I should be using TPM for both? Need to figure out how to generate TPM data from Seurat
+#make_heatmap(gem = Carter_gem, labels = reference_clusters, markers = scID_outputCarterNayler$markers)
+#make_heatmap(gem = Carter_gem, labels = scID_outputCarterNayler$labels, markers = scID_outputCarterNayler$markers)
+
+#Error in make_heatmap(gem = Carter_gem, labels = scID_outputCarterNayler$labels,  : 
+# Cell names between labels and gem do not match! Please make sure you have provided labels for the cells of the gem.
+
+#head(scID_outputCarterNayler$labels)
+#AAACCTGAGGTACTCT_1 AAACCTGAGTGGACGT_1 AAACCTGTCAGAAATG_1 AAACCTGTCTCGGACG_1 AAACGGGAGTACATGA_1 AAACGGGAGTGTACTC_1 
+#              "46"               "46"               "40"               "46"               "44"               "40" 
+
+#head(Carter_gem)
+#   P10B_TTTATCCTTCTTCA P10B_TTTCACGACCTTCG P10B_TTTCACGAGCATAC P10B_TTTCAGTGAGAATG P10B_TTTCAGTGTATCGG #P10B_TTTCCAGATGCGTA
+#     P10B_TTTCGAACGACTAC P10B_TTTCGAACTTCTAC P10B_TTTGCATGCCCTCA
+
+
+scID_outputCarterNayler2<- scid_multiclass(target_gem = target_gem2, reference_gem = Carter_gem, reference_clusters = reference_clusters, logFC = 0.5, only_pos = FALSE, estimate_weights_from_target = FALSE,normalize_reference=FALSE) 
+#Worked! 3 hours processing time
+
+make_heatmap(gem = Carter_gem, labels = reference_clusters, markers = scID_outputCarterNayler2$markers)
+#This works!!!
+
+write.csv(scID_outputCarterNayler2$labels, file = "~/Desktop/Example_data/scIDCarter/Final/20190711scIDCarterNayker2labels.csv")
+#If I look here I have my 2500 cells but the only matches appear to be 44, 46, 47 and 29!!! What does this mean?
+write.csv(scID_outputCarterNayler2$scores, file = "~/Desktop/Example_data/scIDCarter/Final/20190711scIDCarterNayker2scores.csv")
+write.csv(scID_outputCarterNayler2$markers, file = "~/Desktop/Example_data/scIDCarter/Final/20190711scIDCarterNayker2markers.csv")
+
+write.csv(scID_outputCarterNayler2$estimated_weights, file = "~/Desktop/Example_data/scIDCarter/Final/20190711scIDCarterNayker2estweights.csv")
+#Error in (function (..., row.names = NULL, check.rows = FALSE, check.names = TRUE,  : 
+# arguments imply differing number of rows: 308, 136, 169, 174, 229, 209, 130, 150, 257, 188, 89, 387, 77, 213, 271, 151, 133, 194, #184, 198, 95, 94, 276, 208, 236, 117, 296, 103, 121, 341, 113, 1622, 110, 8, 230, 155, 192, 298, 644, 1102, 752, 453, 483, 861, 588
+
+
+make_heatmap(gem = Carter_gem, labels = scID_outputCarterNayler2$labels, markers = scID_outputCarterNayler2$markers)
+#Error in make_heatmap(gem = Carter_gem, labels = scID_outputCarterNayler2$labels,  : 
+#Cell names between labels and gem do not match! Please make sure you have provided labels for the cells of the gem.
+
+head(scID_outputCarterNayler2$labels)
+#AAACCTGAGGTACTCT_1 AAACCTGAGTGGACGT_1 AAACCTGTCAGAAATG_1 AAACCTGTCTCGGACG_1 AAACGGGAGTACATGA_1 AAACGGGAGTGTACTC_1 
+#              "46"               "46"               "46"               "46"               "44"               "29"
+#These should be my cell ids from the organoid data
+
+
+head(Carter_gem)
+ P10A_CAGGTAACGTGAGG P10A_CAGGTAACTTCTCA P10A_CAGGTATGAGGAGC P10A_CAGGTTGAACTCTT P10A_CAGGTTGAATGCTG P10A_CAGGTTGATCTGGA
+     P10A_CAGGTTGATGCCCT P10A_CAGGTTGATGGTGT P10A_CAGTCAGAAAAGTG P10A_CAGTCAGAACCAGT P10A_CAGTCAGAAGTACC P10A_CAGTCAGAATTCGG
+     P10A_CAGTCAGACGAACT P10A_CAGTCAGATATTCC P10A_CAGTCAGATGCAAC P10A_CAGTTACTGTCACA P10A_CAGTTGGACGTAAC P10A_CAGTTGGATCTTCA
+#These are the ids from carter et al
+
+head(reference_clusters)
+#E10A_AAACCGTGATTCTC E10A_AAACCGTGGGAGCA E10A_AAACCGTGTTTACC E10A_AAACGCACAGTGTC E10A_AAACGCTGAGGTCT E10A_AAAGCAGAGGAAGC 
+#                  6                  18                   6                   6                  39                  18 
+#48 Levels: 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 ... 48
+
+
+plot_score_2D(gem = Carter_gem, labels = sscID_outputCarterNayler2$labels, markers = scID_outputCarterNayler2$markers, clusterID = "4", weights = scID_outputCarterNayler2$estimated_weights) 
+#Error in x + 1 : non-numeric argument to binary operator
+
+```
+
+```{r consider trying with a list}
+
+#I could consider running with markers from carter for example?
+carterlist<-c("SPARC", "NES", "ID1", "ID3", "HES5", "MSX1", "TMEM163", "MEIS2", "LHX2", "LHX9", "GREM2", "GNG8", "EVX1", "SELM", "PAX6", "MFAP4", "NEUROD1", "ATOH1", "BARHL1", "PPP2R2C", "TLX3", "LHX5", "LHX1", "GAD2", "GAD1", "FOXP2", "GM27199", "SLC32A1", "CALB1", "RORA", "PAX2", "LBX1", "OPTC", "ALDH1L1", "ALDOC", "HOPX", "TIMP4", "NDRG2", "GDF10", "SOX9", "SOX10", "SLC1A3", "SPARCL1", "VTN", "BGN", "FOXC1", "CLDN5", "IGFBP7", "VAMP5", "CLEC1B", "CD34", "PECAM1", "DYNLRB2", "MEI1", "DCN", "SLC6A13", "COL3A1", "COL1A2", "KRT18", "COLEC12", "RSPO1", "CAMBI", "HBA-A2", "ALAS2", "HBB-BT","FECH", "LY86", "FCER1G", "TMEM119", "ITGAM", "OLIG1", "MATN4", "ISL1", "SNCG", "DLK1", "LMX1A")
+
+#'manual' conversion to mouse symbols - need to check these
+carterlistmouse<-c("Sparc", "Nes", "Id1", "Id3", "Hes5", "Msx1", "Tmem163", "Meis2", "Lhx2", "Lhx9", "Grem2", "Gng8", "Evx1", "Selm", "Pax6", "Mfap4", "Neurod1", "Atoh1", "Barhl1", "Ppp2r2C", "Tlx3", "Lhx5", "Lhx1", "Gad2", "Gad1", "Foxp2", "Gm27199", "Slc32a1", "Calb1", "Rora", "Pax2", "Lbx1", "Optc", "Aldh1l1", "Aldoc", "Hopx", "Timp4", "Ndrg2", "Gdf10", "Sox9", "Sox10", "Slc1a3", "Sparcl1", "Vtn", "Bgn", "Foxc1", "Cldn5", "Igfbp7", "Vamp5", "Clec1b", "Cd34", "Pecam1", "Dynlrb2", "Mei1", "Dcn", "Slc6a13", "Col3a1", "Col1a2", "Krt18", "Colec12", "Rspo1", "Cambi", "Hba-a2", "Alas2", "Hbb-bt","Fech", "Ly86", "Fcer1g", "Tmem119", "Itgam", "Olig1", "Matn4", "Isl1", "Sncg", "Dlk1", "Lmx1a")
+```
+
+scID_outputCarterNayler3<- scid_multiclass(target_gem = target_gem2, reference_gem = Carter_gem, reference_clusters = reference_clusters, logFC = 0.5, only_pos = FALSE, estimate_weights_from_target = FALSE,normalize_reference=FALSE, markers = carterlistmouse)
+
+#Error in scid_multiclass(target_gem = target_gem2, reference_gem = Carter_gem,  : 
+  #Please provide a data frame of markers with gene and cluster in columns
+#Looks like I need to attach a reference population to each marker!
+
+```{r spare}
+
+#spare clean code for#scID_outputCarterNayler <- scid_multiclass(target_gem = target_gem2, reference_gem = Carter_gem, reference_clusters = reference_clusters, logFC = 0.5, only_pos = FALSE, estimate_weights_from_target = FALSE)
+
+```
+
+
+
+```{r my data as target}
+#What if I make my dataset the target? 
+testexport <-as.matrix(organoids.combined@data)
+#I should also try and look at the Lake data (need to re-download)
+```
+
+```{r saving files}
+orgcombmat<-as.matrix(organoids.combined@data)
+write.csv(orgcombmat, "20190423OrganoidsCombinedGEM.csv")
+orgcombmat2<-read.csv("20190423OrganoidsCombinedGEM.csv")
+orgcombmat3<-as.matrix(orgcombmat2)
+
+
+```
+
+```{r try this  jjj}
+FindMarkers(reference_gem, 7, c(1), min.pct = 0.25)
+FindMarkers(reference_gem, ident.1, ident.2 = NULL, genes.use = NULL,
+  logfc.threshold = 0.25, test.use = "wilcox", min.pct = 0.1,
+  min.diff.pct = -Inf, print.bar = TRUE, only.pos = FALSE,
+  max.cells.per.ident = Inf, random.seed = 1, latent.vars = NULL,
+  min.cells.gene = 3, min.cells.group = 3, pseudocount.use = 1,
+  assay.type = "RNA", ...)
+#What if I have to process the data first?
+```
+
+```{r do I need to make it a seurat objecgt?}
+summary(reference_gem)
+
+seurat_reference_gem<-CreateSeuratObject(reference_gem, project = "SeuratProject", assay = "RNA",
+  min.cells = 0, min.features = 0, names.field = 1,
+  names.delim = "_", meta.data = NULL)
+
+summary(seurat_reference_gem)
+seurat_reference_gem
+
+summary(target_gem)
+
+seurat_target_gem<-CreateSeuratObject(reference_gem, project = "SeuratProject", assay = "RNA",
+  min.cells = 0, min.features = 0, names.field = 1,
+  names.delim = "_", meta.data = NULL)
+
+summary(seurat_target_gem)
+seurat_target_gem
+
+#scID_output <- scid_multiclass(target_gem = seurat_target_gem, reference_gem = seurat_reference_gem, reference_clusters = reference_clusters, logFC = 0.5, likelihood_threshold = 0.95)
+
+seurat_reference_gem@meta.data$stim<-"CTRL"
+#NAY6153A2<-SetAllIdent(NAY6153A2, id="hash_max_ID")
+#Do I need this?
+#Doesnt workref_mito.genes<-grep(pattern="^Mt-", x=rownames(x=seurat_reference_gem@data), value = TRUE)
+ref.mito.genes<-grep ("^Mt",rownames(seurat_reference_gem@data))
+ref_percent.mito<-Matrix::colSums(seurat_reference_gem@raw.data[ref_mito.genes,])/Matrix::colSums(seurat_reference_gem@raw.data)
+seurat_reference_gem<-AddMetaData(object=seurat_reference_gem, metadata=ref_percent.mito, col.name = "percent.mito")
+
+VlnPlot(object=seurat_reference_gem, features.plot = c("nGene", "nUMI", "percent.mito"), nCol =3)
+#What does the fact that there are no mito genes? (Maybe these ones have been removed? Maybe mouse data starts with MT?! Tried Mt, no dif)
+
+seurat_reference_gem <- FilterCells(object = seurat_reference_gem, subset.names = c("nGene", "percent.mito"), low.thresholds = c(200, -Inf), high.thresholds = c(5000, 0.15))
+
+VlnPlot(object=seurat_reference_gem, features.plot = c("nGene", "nUMI", "percent.mito"), nCol =3)
+seurat_reference_gem<- NormalizeData(object = seurat_reference_gem, normalization.method = "LogNormalize", scale.factor = 10000)
+
+seurat_reference_gem<-FindVariableGenes(object =seurat_reference_gem, mean.function = ExpMean, dispersion.function = LogVMR, x.low.cutoff = 0.0125, x.high.cutoff = 3, y.cutoff = 0.5)
+
+seurat_reference_gem<-ScaleData(object = seurat_reference_gem, vars.to.regress = c("nUMI", "percent.mito"))
+#
+
+seurat_target_gem@meta.data$stim<-"STIM"
+#NAY6153A2<-SetAllIdent(NAY6153A2, id="hash_max_ID")
+#Do I need this?
+#Doesnt workref_mito.genes<-grep(pattern="^Mt-", x=rownames(x=seurat_reference_gem@data), value = TRUE)
+tar_mito.genes<-grep ("^Mt",rownames(seurat_target_gem@data))
+tar_percent.mito<-Matrix::colSums(seurat_target_gem@raw.data[tar_mito.genes,])/Matrix::colSums(seurat_target_gem@raw.data)
+seurat_target_gem<-AddMetaData(object=seurat_target_gem, metadata=tar_percent.mito, col.name = "percent.mito")
+
+VlnPlot(object=seurat_target_gem, features.plot = c("nGene", "nUMI", "percent.mito"), nCol =3)
+#What does the fact that there are no mito genes? (Maybe these ones have been removed? Maybe mouse data starts with MT?! Tried Mt, no dif)
+
+seurat_target_gem <- FilterCells(object = seurat_target_gem, subset.names = c("nGene", "percent.mito"), low.thresholds = c(200, -Inf), high.thresholds = c(5000, 0.15))
+
+VlnPlot(object=seurat_target_gem, features.plot = c("nGene", "nUMI", "percent.mito"), nCol =3)
+seurat_target_gem<- NormalizeData(object = seurat_target_gem, normalization.method = "LogNormalize", scale.factor = 10000)
+
+seurat_target_gem<-FindVariableGenes(object =seurat_target_gem, mean.function = ExpMean, dispersion.function = LogVMR, x.low.cutoff = 0.0125, x.high.cutoff = 3, y.cutoff = 0.5)
+
+seurat_target_gem<-ScaleData(object = seurat_target_gem, vars.to.regress = c("nUMI", "percent.mito"))
+
+control<-FindVariableGenes(seurat_reference_gem, do.plot=F)
+stimu<-FindVariableGenes(seurat_target_gem, do.plot =F)
+g.1<-head(rownames(seurat_reference_gem@hvg.info),1000)
+g.2<-head(rownames(seurat_target_gem@hvg.info),1000)
+genes.use<-unique(c(g.1,g.2))
+genes.use<-intersect(genes.use, rownames(seurat_reference_gem@scale.data))
+genes.use<-intersect(genes.use, rownames(seurat_target_gem@scale.data))
+
+seurat_reftarg.combined<-RunCCA(seurat_reference_gem,seurat_target_gem, add.cell.id1 ="REF", add.cell.id2 ="TAR", genes.use = genes.use, num.cc = 20)
+
+```
+
+```{r lets try procesing}
+
+```
+#If I 'stop' the analysis
+#Stage 2: Estimate weights of signature genes
+
+#Warning message:
+#In Seurat::FindAllMarkers(so_ref, test.use = "MAST", only.pos = TRUE,  :
+#No DE genes identified.
