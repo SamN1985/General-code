@@ -1,0 +1,105 @@
+---
+title: "20190729_scID_cleancode"
+author: "Sam N"
+date: "29/07/2019"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+devtools::install_github("BatadaLab/scID")
+library(scID)
+library(Matrix)
+library(Seurat)
+library(dplyr)
+library(cowplot)
+#(install.packages("biomod2"))
+library(biomod2)
+
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("MAST")
+library(MAST)
+```
+
+```{r read in files and format}
+Carter_gem<-read.table("~/Desktop/Example_data/scIDCarter/Final/20190702exprmatCarterREFGEM.tsv", header = T, stringsAsFactors = T)
+rownames(Carter_gem) = make.unique(as.character(Carter_gem[, 1]))
+rownames(Carter_gem)
+
+reference_clusters <- readRDS(file="~/Desktop/Example_data/scIDCarter/Final/20190709CartRefClusCharPopsManFAC.rds")
+
+target_gem <- readRDS (file="~/Desktop/Example_data/scIDCarter/Final/20190705TargetNaylerGEMMouseids.rds")
+names(target_gem)[names(target_gem) == "MGI.symbol"] <- "gene"
+rownames(target_gem) = make.unique(as.character(target_gem[, 1]))
+rownames(target_gem)
+
+```
+
+```{r run scID}
+
+scID_outputCarterNayler <- scid_multiclass(target_gem = target_gem, reference_gem = Carter_gem, reference_clusters = reference_clusters, estimate_weights_from_target = FALSE)
+
+
+
+```
+
+
+
+```{r outputs}
+make_heatmap(gem = Carter_gem, labels = reference_clusters, markers = scID_outputCarterNayler$markers)
+
+make_heatmap(gem = target_gem, labels = scID_outputCarterNayler$labels, markers = scID_outputCarterNayler$markers)
+
+scID_outputCarterNayler$labels
+
+(table(scID_outputCarterNayler4$markers$cluster))
+
+write.csv (scID_outputCarterNayler$labels, file = "~/Desktop/Example_data/scIDCarter/Final/20190730a.csv")
+
+CarterIDs20190730a<-read.csv("~/Desktop/Example_data/scIDCarter/Final/20190730a.csv", header = T)
+
+organoids.combined@meta.data$CarterIDs20190730a <- CarterIDs20190730a
+#Note only 954 cells have been placed with this new method, this is causing problems to plot. Let's try Katerinas 
+#p1 <-DimPlot(organoids.combined, reduction = "umap", group.by = "dataname")
+#p2 <-DimPlot(organoids.combined, reduction = "umap", label = TRUE)
+#plot_grid (p1,p2)
+```
+
+``{Katerinas way to vis cells}
+organoids.combined@meta.data$scID.ident =as.factor(CarterIDs20190730a)
+organoids.combined@meta.data$scID.ident = as.factor(scID_outputCarterNayler$labels[rownames(organoids.combined@meta.data)])
+DimPlot(organoids.combined, group.by = organoids.combined@meta.data$scID.ident)
+
+```
+
+
+
+
+
+```
+
+```{r restrict markers}
+
+markers = scID_outputCarterNayler$markers
+#Then you can view it as all data frame structures 
+View(markers)
+ 
+#Below is a code to filter these markers and rerun scID with a subset of top50 positive markers and top50 negative markers
+ 
+library(dplyr)
+positive_markers <- markers[which(markers$avg_logFC > 0), ]
+top50_positive <- positive_markers %>% group_by(cluster) %>% top_n(n = 50, wt = avg_logFC)
+negative_markers <- markers[which(markers$avg_logFC < 0), ]
+top50_negative <- negative_markers %>% group_by(cluster) %>% top_n(n = 50, wt = avg_logFC)
+ 
+top100_markers <- rbind(top50_negative, top50_positive)
+
+scID_outputCarterNayler2 <- scid_multiclass(target_gem = target_gem, reference_gem = Carter_gem, reference_clusters = reference_clusters, markers = top100_markers, estimate_weights_from_target = FALSE)
+```
+
+#Need to think up a better way to visualize/enumerate the clusters on a background!
+#Would be nice to run on cluster as quite computationally intensive
+#Would be nice to know what the genes contributing to the marker signatures are rather than x20340
+
+

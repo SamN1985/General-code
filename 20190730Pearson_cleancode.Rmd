@@ -1,0 +1,226 @@
+---
+title: "20190730Pearson_cleancode"
+author: "Sam N"
+date: "30/07/2019"
+output: html_document
+---
+```{r read in data}
+ctrl.data<-Read10X(data.dir ="/Users/samnayler/Desktop/bsg-ftp.well.ox.ac.uk/additional_analyses/10X-hashing/NAY6153A2/hashing.sng/", gene.column = 1)
+#Note not sure if these have actually been demultiplexed
+
+ctrl<-CreateSeuratObject(counts = ctrl.data, project = "organoids", min.cells = 3, min.features = 200)
+ctrl$stim <- "CTRL"
+ctrl<-subset(ctrl, subset = nFeature_RNA > 500)
+ctrl<-NormalizeData(ctrl, verbose = FALSE)
+ctrl<-FindVariableFeatures(ctrl, selection.method = "vst", nFeatures =1000)
+
+
+#https://satijalab.org/seurat/v3.0/interaction_vignette.html
+#https://satijalab.org/seurat/v3.0/sctransform_vignette.html
+
+#need to check the norm/qc/filtering
+
+# Set up stimulated object
+mg.data<-Read10X(data.dir ="/Users/samnayler/Desktop/bsg-ftp.well.ox.ac.uk/additional_analyses/10X-hashing/NAY6153A1/hashing.sng/", gene.column = 1)
+
+mg<-CreateSeuratObject(counts = mg.data, project = "organoids", min.cells = 3, min.features = 200)
+mg$stim <- "STIM"
+mg<-subset(mg, subset = nFeature_RNA > 500)
+mg<-NormalizeData(mg, verbose = FALSE)
+mg<-FindVariableFeatures(mg, selection.method = "vst", nFeatures =1000)
+```
+
+```{r Find integration anchors}
+organoid.anchors<-FindIntegrationAnchors(object.list = list(ctrl, mg), dims = 1:20)
+organoids.combined<- IntegrateData(anchorset = organoid.anchors, dims = 1:20)
+DefaultAssay(organoids.combined) <-"integrated"
+organoids.combined<-ScaleData(organoids.combined, verbose = FALSE)
+organoids.combined<-RunPCA (organoids.combined, npcs = 30, verbose = FALSE)
+organoids.combined <-RunUMAP (organoids.combined, reduction = "pca", dims = 1:12)
+organoids.combined<-FindNeighbors(organoids.combined, reduction = "pca", dims = 1:20)
+#NOTE I SHOULD CONSIDER USING SCTRANSFORM, which replaces normalizedata, scaledata and findvariablefeatures. This could also affect my population markers, DE and also the affinity of scID. Could be important!
+```
+
+```{r find clusters}
+organoids.combined<-FindClusters(organoids.combined, resolution = 0.5)
+p1 <-DimPlot(organoids.combined, reduction = "umap", group.by = "stim")
+p2 <-DimPlot(organoids.combined, reduction = "umap", label = TRUE)
+plot_grid (p1,p2)
+```
+
+```{r derive average expression}
+aveexpnayler<-AverageExpression(organoids.combined)
+aveexpnayler.df<-as.data.frame(aveexpnayler$RNA)
+aveexpnayler.df$gene<-rownames(aveexpnayler.df)
+hvgnayler<-as.character(aveexpnayler.df$gene)
+
+
+mart1 = useMart(biomart = "ENSEMBL_MART_ENSEMBL", host="www.ensembl.org", path = "/biomart/martservice", dataset="hsapiens_gene_ensembl")
+mart2 = useMart(biomart = "ENSEMBL_MART_ENSEMBL", host="www.ensembl.org", path = "/biomart/martservice", dataset="mmusculus_gene_ensembl")
+
+orth.humantue <-getLDS(attributes=c("hgnc_symbol"),
+       filters="hgnc_symbol", values=hvgnayler, mart=mart1,
+       attributesL=c("mgi_symbol"), martL=mart2, filtersL = "with_hsapiens_homolog", valuesL = T)
+       
+mergednaylermouseorth<-merge(aveexpnayler.df, orth.humantue, by.x="gene", by.y="HGNC.symbol")
+mergednaylermouseorth<-mergednaylermouseorth[-1]
+
+#But these are not hvgs?! They are just avg expression. wrong if they are based off organoids.combined which is based on top 2000 hvg.
+
+#What about below?
+
+```
+
+```{r get carter data read in}
+Carter.raw.data2<-Read10X(data.dir = "/Users/samnayler/Desktop/Example_data/scIDCarter/annotated_Unnormdata/")
+CarterUnnorm<-CreateSeuratObject(counts = Carter.raw.data2, project = "scID", min.cells = 3, min.features = 200)
+
+GetAssay(CarterUnnorm, assay = "RNA")
+#Assay data with 20661 features for 77458 cells
+cart<-subset(CarterUnnorm, subset = nFeature_RNA > 500)
+cart<-NormalizeData(cart, verbose = FALSE)
+cart<-FindVariableFeatures(cart, selection.method = "vst", nFeatures =2000)
+#Should I be using 1000 or 2000 here? Lets try 2000 as I think its what was used for organoids.combined
+
+cart<-ScaleData(cart, verbose = FALSE)
+cart<-RunPCA (cart, npcs = 30, verbose = FALSE)
+cart<-RunUMAP (cart, reduction = "pca", dims = 1:12)
+cart<-FindNeighbors(cart, reduction = "pca", dims = 1:20)
+
+cart<-FindClusters(cart, resolution = 1.8)
+p1 <-DimPlot(cart, reduction = "umap", group.by = "seurat_clusters")
+p2 <-DimPlot(cart, reduction = "umap", label = TRUE)
+plot_grid (p1,p2)
+```
+
+aveexpcarter<-AverageExpression(cart)
+#But will this be based on the clustering I have done (47 pops, not their clustering ie 48 pops and half the cells)
+aveexpcarter.df<-as.data.frame(aveexpcarter$RNA)
+aveexpcarter.df$gene<-rownames(aveexpcarter.df)
+hvgcarter<-as.character(aveexpcarter.df$gene)
+#But these are not hvgs?! They are just avg expression
+hvgnayler<-as.character(aveexpnayler.df$gene)
+
+
+#Move the MGI.symbol to the first column
+mergednaylermouseorth2<-
+mergednaylermouseorth %>%
+  select (MGI.symbol, everything())
+  
+  
+aveexpcarter.df2<-
+aveexpcarter.df %>%
+  select (gene, everything())
+  
+onion2<-merge(mergednaylermouseorth, aveexpcarter.df2, by.x="MGI.symbol", by.y="gene")
+  
+
+onion3<-onion2[-1]
+cor(onion3, use="complete.obs", method = "pearson")
+cornaylerumap10popvscarter47pop<-cor(onion3, use="complete.obs", method = "pearson")
+
+#try and plot
+library(reshape2)
+melted_cormat <- melt(cornaylerumap10popvscarter47pop)
+head(melted_cormat)
+
+library(ggplot2)
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile()
+#This works, need to see if I can run it on hvg
+
+```
+
+```{r do with top variable genes}
+
+#change this code below but get variable genes
+
+GetAssayData(organoids.combined@assays$integrated)
+
+naylerintegrated<-GetAssayData(organoids.combined@assays$integrated)
+
+naylerintegrated
+
+
+aveexpnayler_integrated<-AverageExpression(organoids.combined)
+aveexpnayler_integrated.df<-as.data.frame(aveexpnayler$integrated)
+aveexpnayler_integrated.df$gene<-rownames(aveexpnayler_integrated.df)
+hvgnayler_integrated<-as.character(aveexpnayler_integrated.df$gene)
+
+mart1 = useMart(biomart = "ENSEMBL_MART_ENSEMBL", host="www.ensembl.org", path = "/biomart/martservice", dataset="hsapiens_gene_ensembl")
+mart2 = useMart(biomart = "ENSEMBL_MART_ENSEMBL", host="www.ensembl.org", path = "/biomart/martservice", dataset="mmusculus_gene_ensembl")
+
+hvgnayler_integrated_asmouse <-getLDS(attributes=c("hgnc_symbol"),
+       filters="hgnc_symbol", values=hvgnayler_integrated, mart=mart1,
+       attributesL=c("mgi_symbol"), martL=mart2, filtersL = "with_hsapiens_homolog", valuesL = T)
+
+#1767 out of 2000 genes with homology
+
+mergednayler_intergrated_mouseorth<-merge(aveexpnayler_integrated.df, hvgnayler_integrated_asmouse, by.x="gene", by.y="HGNC.symbol")
+
+mergednayler_intergrated_mouseorth<-mergednayler_intergrated_mouseorth[-1]
+
+#This is now my list of hvg and ave expression values  with identifiable homology from nayler organoids that have mouse probe ids. I now need to merge this with the carter values and retain just these genes
+
+#Move the MGI.symbol to the first column
+mergednayler_intergrated_mouseorth<-
+mergednayler_intergrated_mouseorth %>%
+  select (MGI.symbol, everything())
+
+head(aveexpcarter)
+?
+
+mergedcarterfullnaylerhvg<-merge(mergednayler_intergrated_mouseorth, aveexpcarter.df, by.x="MGI.symbol", by.y="gene")
+head(mergedcarterfullnaylerhvg)
+#What has happened to the gene symbols here?
+#I have 1708 genes remaining
+
+mergedcarterfullnaylerhvg2<-mergedcarterfullnaylerhvg[-1]
+corhvgnayler11popvscarter47pop<-cor(mergedcarterfullnaylerhvg2, use="complete.obs", method = "pearson")
+
+
+#try and plot
+library(reshape2)
+melted_cormat_hvg <- melt(corhvgnayler11popvscarter47pop)
+head(melted_cormat_hvg)
+
+library(ggplot2)
+ggplot(data = melted_cormat_hvg, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile()
+```
+
+
+
+```{r try and repeat pearson correlation with cell types}
+
+#Lets try and merge the metadata with the cell type classification ie reference clusters
+#Should actually probably merge the cell types inside a file first first
+
+
+#cartmeta<-read.csv("~/Desktop/Example_data/scIDCarter/cerebellum_cell_metadata.tsv", header = T, sep = "")
+#colnames(CarterUnnorm)
+#Note that the seurat object does not have -1 after it
+
+#CartMeta<-CarterUnnorm@meta.data
+
+#If I can merge cartmeta with the rownames from cartunnorm I can isolate just the utilized cells with their corresponding cell type
+
+
+#carterlots<-as.data.frame(colnames(CarterUnnorm)(CarterUnnorm$orig.ident))
+#This doesnt have a title! Need one to merge it
+#carterlots<-as.data.frame(carterlots)
+
+#mergie<-merge(carterlots, carts, by.x="colnames(CarterUnnorm)", by.y="colnames(CarterUnnorm)")
+#STOPPED HERE MONDAY 29/07 - need to wrangle this data into more useful format to merge it and rerun pearson correlation
+
+
+#One of the things I can try is to pull in the cells present in the metadata (cartmeta) file and have everything else return an NA value. Then I can add that list as a metadata column. 
+
+#subsetz<-subset(CarterUnnorm, subset = metadatacell = not N/A)
+```
+
+rmarkdown::render ('20190702_OrganoidsseuratV3.Rmd', output_format = 'pdf_document')
+
+
+
+
