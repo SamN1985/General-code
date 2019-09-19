@@ -1,0 +1,110 @@
+---
+title: "20190805_SeuratV2toV3update"
+author: "Sam N"
+date: "05/008/2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+#Here I will attempt to update my seuratobjects using the update object functionality built into version 3. This is mostly so I can get around the issue of having to use seurat v3 without doing the demultiplexing again.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(Seurat)
+library(devtools)
+library(Matrix)
+library(cowplot)
+sessionInfo()
+```
+```{upgrade}
+oldganoids_ctrl<-readRDS("/Users/samnayler/Desktop/bsg-ftp.well.ox.ac.uk/additional_analyses/10x-hashing/NAY6153A2/hashing.sng/seurat.rds")
+oldganoids_stim<-readRDS("/Users/samnayler/Desktop/bsg-ftp.well.ox.ac.uk/additional_analyses/10x-hashing/NAY6153A1/hashing.sng/seurat.rds")
+
+newganoids_ctrl<-UpdateSeuratObject((oldganoids_ctrl))
+newganoids_stim<-UpdateSeuratObject((oldganoids_stim))
+
+```
+
+
+```{r processing}
+#How much of this was done to the old object and is redundant? I want to try out sctransform but will the data have already been normalized/scaled?
+
+newganoids_ctrl$stim <- "CTRL"
+newganoids_ctrl<-subset(newganoids_ctrl, subset = nFeature_RNA > 500)
+newganoids_ctrl<-NormalizeData(newganoids_ctrl, verbose = FALSE)
+newganoids_ctrl<-FindVariableFeatures(newganoids_ctrl, selection.method = "vst", nFeatures =1000)
+
+newganoids_stim$stim <- "STIM"
+newganoids_stim<-subset(newganoids_stim, subset = nFeature_RNA > 500)
+newganoids_stim<-NormalizeData(newganoids_stim, verbose = FALSE)
+newganoids_stim<-FindVariableFeatures(newganoids_stim, selection.method = "vst", nFeatures =1000)
+
+
+
+
+newganoid.anchors<-FindIntegrationAnchors(object.list = list(newganoids_ctrl, newganoids_stim), dims = 1:20)
+newganoids.combined<- IntegrateData(anchorset = newganoid.anchors, dims = 1:20)
+
+
+DefaultAssay(newganoids.combined) <-"integrated"
+newganoids.combined<-ScaleData(newganoids.combined, verbose = FALSE)
+newganoids.combined<-RunPCA (newganoids.combined, npcs = 30, verbose = FALSE)
+newganoids.combined <-RunUMAP (newganoids.combined, reduction = "pca", dims = 1:12)
+newganoids.combined<-FindNeighbors(newganoids.combined, reduction = "pca", dims = 1:20)
+#NOTE I SHOULD CONSIDER USING SCTRANSFORM, which replaces normalizedata, scaledata and findvariablefeatures. This could also affect my population markers, DE and also the affinity of scID. Could be important!
+```
+```{r find clusters}
+newganoids.combined<-FindClusters(newganoids.combined, resolution = 0.8)
+p1 <-DimPlot(newganoids.combined, reduction = "umap", group.by = "stim")
+p2 <-DimPlot(newganoids.combined, reduction = "umap", label = TRUE)
+plot_grid (p1,p2)
+#Note I have not thrown out cells due to QC here
+```
+
+```{r viz and find markers}
+
+DimPlot(newganoids.combined, reduction = "umap", split.by = "stim")
+
+
+DefaultAssay(newganoids.combined) <- "RNA"
+pop0.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 0, grouping.var = "stim", verbose = FALSE)
+head(pop0.markers)
+write.csv(pop0.markers, "~/Desktop/Organoids/20190715_V3Seurat/20190716Pop0markers_integrated.csv")
+
+
+pop1.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 1, grouping.var = "stim", verbose = FALSE)
+head(pop1.markers)
+write.csv(pop1.markers, "~/Desktop/Organoids/20190715_V3Seurat/20190716Pop1markers_integrated.csv")
+
+
+pop2.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 2, grouping.var = "stim", verbose = FALSE)
+head(pop2.markers)
+write.csv(pop2.markers, "~/Desktop/Organoids/20190715_V3Seurat/20190716Pop2markers_integrated.csv")
+
+
+pop3.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 3, grouping.var = "stim", verbose = FALSE)
+head(pop3.markers)
+write.csv(pop3.markers, "~/Desktop/Organoids/20190715_V3Seurat/20190716Pop3markers_integrated.csv")
+
+
+pop4.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 4, grouping.var = "stim", verbose = FALSE)
+head(pop4.markers)
+write.csv(pop4.markers, "~/Desktop/Organoids/20190715_V3Seurat/20190716Pop4markers_integrated.csv")
+
+
+pop5.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 5, grouping.var = "stim", verbose = FALSE)
+head(pop5.markers)
+write.csv(pop5.markers, "~/Desktop/Organoids/20190715_V3Seurat/20190716Pop5markers_integrated.csv")
+
+
+pop6.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 6, grouping.var = "stim", verbose = FALSE)
+head(pop6.markers)
+write.csv(pop6.markers, "~/Desktop/Organoids/20190715_V3Seurat/20190716Pop6markers_integrated.csv")
+
+
+pop7.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 7, grouping.var = "stim", verbose = FALSE)
+head(pop7.markers)
+write.csv(pop7.markers, "~/Desktop/Organoids/20190715_V3Seurat/20190716Pop7markers_integrated.csv")
+
+```
