@@ -1,0 +1,186 @@
+---
+title: "scMAP4"
+author: "Sam N"
+date: "25/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(Seurat)
+library(devtools)
+library(Matrix)
+library(cowplot)
+#In version 3 I did several things, 1) make the object mouseganoids which is newganoids.combined converted to mouse probes as a seurat object. I have also added a new column to the metadata $cell_typesh which has the Idents as an object I can use to pipe to scMAP. I believe the variability that is preventing me from reproducibly generating/tuning the n_features/heatmap, important criteria for clustering is the counts/logcounts. Here I will try and test that with streamline code working back to carter_sct. Once I establish this I should also test THRESHOLD.
+
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("scmap")
+library(SingleCellExperiment)
+library(scmap)
+library(biomaRt)
+knitr::opts_chunk$set(echo = TRUE)
+#Note: this is reliant on the species conversion in scMAP3
+```
+```{r create a list of mouse probes for newganoids.combined}
+
+#Now I can make a new object that should have cell type as metadata. Should make a fresh workflow to examine counts/logcounts.
+
+
+newganoids.combined.counts<-as.data.frame(newganoids.combined@assays$RNA@counts)
+
+newganoids.combined.counts$gene<-rownames(newganoids.combined)
+
+newganoids.combined.counts.merged<-merge(nayler_all_integrated_asmouse, newganoids.combined.counts, by.x='HGNC.symbol', by.y='gene')
+
+newganoids.combined.counts.merged = newganoids.combined.counts.merged[,-1]
+newganoids.combined.counts.merged = newganoids.combined.counts.merged %>%
+                  group_by(MGI.symbol) %>%
+                  summarise_all(sum) 
+head(newganoids.combined.counts.merged)[,1:5]
+
+class(newganoids.combined.counts.merged)
+
+newganoids.combined.counts.merged<-as.data.frame(newganoids.combined.counts.merged)
+#I need to convert to a dataframe before I can add the new rownames
+rownames(newganoids.combined.counts.merged)<-newganoids.combined.counts.merged[,1] 
+#This is a dataframe of raw counts of newganoids.combined with mouse symbols, I can use this as a starting point for scMAP
+
+#Prune off first column 
+
+newganoids.combined.counts.merged<-newganoids.combined.counts.merged[,-1]
+
+```
+
+```{r make a new object}
+newganoids.combined.metadata<-newganoids.combined@meta.data
+
+newganoids.combined.counts.merged.asmmouse<-CreateSeuratObject(newganoids.combined.counts.merged, project = "scMAP", assay = "RNA",
+  min.cells = 0, min.features = 0, names.field = 1,
+  names.delim = "_", meta.data = newganoids.combined.metadata)
+
+#I now need to run this thru the std pipeline
+mouseganoids<-PercentageFeatureSet(newganoids.combined.counts.merged.asmmouse, pattern ="^MT-", col.name = "percent.mt")
+mouseganoids<-SCTransform(mouseganoids, vars.to.regress = "percent.mt", verbose = FALSE)
+mouseganoids<-RunPCA (mouseganoids, verbose = FALSE)
+mouseganoids<-RunUMAP(mouseganoids, dims = 1:30, verbose = FALSE)
+mouseganoids<-(FindNeighbors(mouseganoids, dims = 1:30, verbose = FALSE))
+mouseganoids<-FindClusters(mouseganoids, verbose = FALSE)
+p1<-DimPlot(mouseganoids, label = TRUE) + NoLegend()
+
+#Note there are now 10 populations presumably because of the reduced number of genes after conversion. I COULD PULL OUT METADATA/IDENTS FOR NEWGANOIDS.COMBINED AND TRY AND SFHIT IT OVER
+
+#mouseganoids<-RenameIdents(mouseganoids, `0` = "Choroid plexus", `1` = "Glutamatergic DCN",`2` = "Vascularised roof plate", `3` = "Bergmann Glia",`4` = "Granule cells-S",`5` = "Granule cell precursors",`6` = "Purkinje neurons",`7` = "Roof plate",`8` = "Granule cells-G2M",`9` = "Rhombic lip precursors",`10` = "Unknown",`11` =  "Ciliated ependymal cells")
+
+p1<-DimPlot(mouseganoids, label = TRUE) + NoLegend()
+
+DefaultAssay(mouseganoids) <- 'SCT'
+
+litlist2<-c("IGFBP7", "TTR", "BMP7","PCP4", "NEUROD1", "LHX9","DCX", "NCAM1","LMX1A", "RSPO1", "SPARCL1", "FABP7", "VIM", "SLC1A3", "GDF10", "PTN", "S100B", "PTPRZ1", "PAX6", "ATOH1", "BARHL1", "PLTP", "NPC2", "FOXC1", "NEUROG2", "HSPA5", "RNF7", "SERPINE2", "ATF5", "PCNA", "MKI67", "DYNLRB2", "BMP4", "SEZ6L2", "HERC1", "MYH10", "AARS")
+
+DoHeatmap(mouseganoids, features = litlist2, cells = 1:1653, group.bar = TRUE, disp.min = -2.5, disp.max = NULL, slot = "scale.data", assay = NULL, label = TRUE, size = 5.5, hjust = 0, angle = 45, raster = TRUE, draw.lines = TRUE, lines.width = NULL, group.bar.height = 0.02, combine = TRUE)
+
+#If I dont group.by it will default to idents, hence giving me cell names, how do I call this otherwise?
+DoHeatmap(mouseganoids, features = kimlistGCPandUBC, cells = 1:1653,
+  group.bar = TRUE, disp.min = -2.5, disp.max = NULL,
+  slot = "scale.data", assay = NULL, label = TRUE, size = 5.5,
+  hjust = 0, angle = 45, raster = TRUE, draw.lines = TRUE,
+  lines.width = NULL, group.bar.height = 0.02, combine = TRUE)
+
+mouseganoid.id.df<-as.data.frame(Idents(mouseganoids))
+
+```
+
+
+
+
+
+```{r import a fresh sce object from carter_sct}
+DefaultAssay(carter_sct) <-"RNA"
+
+
+dataframe2<-carter_sct@meta.data
+
+carter_sct.sce3<- SingleCellExperiment(assays = list(counts = as.matrix(carter_sct@assays$RNA@counts)), colData = dataframe2)
+
+cartmat<-as.matrix(carter_sct@assays$RNA@counts)
+counts(carter_sct.sce3)<-cartmat
+
+libsizes <- colSums(cartmat)
+size.factors <- libsizes/mean(libsizes)
+logcounts(carter_sct.sce3) <- log2(t(t(cartmat)/size.factors) + 1)
+assayNames(carter_sct.sce3)
+
+
+rowData(carter_sct.sce3)$feature_symbol <- rownames(carter_sct)
+```
+
+```{r run feature selection on carter_sct.sce}
+carter_sct.sce3 <- selectFeatures(carter_sct.sce3, n_features = 400, suppress_plot = FALSE)
+carter_sct.sce3 <- indexCluster(carter_sct.sce3, cluster_col ="cell_type")
+head(metadata(carter_sct.sce3)$scmap_cluster_index)
+refhm<-heatmap(as.matrix(metadata(carter_sct.sce3)$scmap_cluster_index))
+
+```
+
+
+```{r bring in my fresh counts from mouseganoids}
+#I should first try and project with no processing of object
+DefaultAssay(mouseganoids) <- 'RNA'
+
+
+dataframe.mouseganoids<-mouseganoids@meta.data
+mouseganoids.sce3<- SingleCellExperiment(assays = list(counts = as.matrix(mouseganoids@assays$RNA@data)), colData = dataframe.mouseganoids)
+#rowData(mouseganoids.sce3)$feature_symbol <- rownames(mouseganoids.sce2)
+#rowData(mouseganoids.sce3)$feature_symbol <- mouseganoids18k
+
+mousie18k<-rowData(mouseganoids.sce2)
+rowData(mouseganoids.sce3)$feature_symbol <- mousie18k$feature_symbol
+
+#Note a difference in length that may result in errors, partial fix if I return DefaultAssay(mouseganoids) <-'RNA'. Need to fix this.
+##########fix before going on; require 18000 mouse genes here 
+mouseganoids18k<-(rowData(mouseganoids.sce2)$feature_symbol)
+
+mousegmat<-as.matrix(mouseganoids@assays$RNA@counts)
+counts(mouseganoids.sce3)<-mousegmat
+libsizes_mouseganoids <- colSums(mousegmat)
+size.factors_mouseganoids <- libsizes_mouseganoids/mean(libsizes_mouseganoids)
+logcounts(mouseganoids.sce3) <- log2(t(t(mousegmat)/size.factors_mouseganoids) + 1)
+assayNames(mouseganoids.sce3)
+mouseganoids$cell_typeh<-Idents(mouseganoids)
+
+```
+
+```{r projections}
+scmapCluster_results2 <- scmapCluster(
+  projection = mouseganoids.sce3, 
+  index_list = list(
+    yan = metadata(carter_sct.sce3)$scmap_cluster_index,
+    threshold = 0.7
+  )
+)
+
+
+#There are less than ten features in common between the `reference` and `projection` datasets. Most probably they come from different organisms! Please redefine your query!
+```
+
+```{r sankey plot}
+plot(
+  getSankey(
+    colData(mouseganoids.sce3)$cell_typeh, 
+    scmapCluster_results$scmap_cluster_labs[,'yan'],
+    plot_height = 400, 
+  )
+)
+#OR with colour
+
+plot(
+  getSankey(
+    colData(mouseganoids.sce3)$cell_typeh, 
+    scmapCluster_results$scmap_cluster_labs[,'yan'],
+    plot_height = 400,
+    colors = c('#000000', '#FF0000', '#FFA500', '#008000', '#00FF00', '#0000FF', '#FFFF00', '#00FFFF', '#FF00FF', '#800000', '#808000','#800080','#008080', '#000080', '#FFFFFF'),
+  )
+)
+```

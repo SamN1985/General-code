@@ -1,0 +1,817 @@
+---
+title: "20190805_SeuratV2toV3update"
+author: "Sam N"
+date: "05/008/2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+#Here I will attempt to update my seuratobjects using the update object functionality built into version 3. This is mostly so I can get around the issue of having to use seurat v3 without doing the demultiplexing again.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(Seurat)
+library(devtools)
+library(Matrix)
+library(cowplot)
+library(clustree)
+sessionInfo()
+```
+```{r upgrade}
+oldganoids_ctrl<-readRDS("/Users/samnayler/Desktop/bsg-ftp.well.ox.ac.uk/additional_analyses/10x-hashing/NAY6153A2/hashing.sng/seurat.rds")
+newganoids_ctrl<-UpdateSeuratObject((oldganoids_ctrl))
+newganoids_ctrl<-PercentageFeatureSet(newganoids_ctrl, pattern ="^MT-", col.name = "percent.mt")
+newganoids_ctrl<-SCTransform(newganoids_ctrl, vars.to.regress = "percent.mt", verbose = FALSE)
+newganoids_ctrl<-RunPCA (newganoids_ctrl, verbose = FALSE)
+newganoids_ctrl<-RunUMAP(newganoids_ctrl, dims = 1:30, verbose = FALSE)
+newganoids_ctrl<-(FindNeighbors(newganoids_ctrl, dims = 1:30, verbose = FALSE))
+newganoids_ctrl<-FindClusters(newganoids_ctrl, verbose = FALSE)
+p1<-DimPlot(newganoids_ctrl, label = TRUE) + NoLegend()
+
+
+
+
+oldganoids_stim<-readRDS("/Users/samnayler/Desktop/bsg-ftp.well.ox.ac.uk/additional_analyses/10x-hashing/NAY6153A1/hashing.sng/seurat.rds")
+newganoids_stim<-UpdateSeuratObject((oldganoids_stim))
+newganoids_stim<-PercentageFeatureSet(newganoids_stim, pattern ="^MT-", col.name = "percent.mt")
+newganoids_stim<-SCTransform(newganoids_stim, vars.to.regress = "percent.mt", verbose = FALSE)
+newganoids_stim<-RunPCA (newganoids_stim, verbose = FALSE)
+newganoids_stim<-RunUMAP(newganoids_stim, dims = 1:30, verbose = FALSE)
+newganoids_stim<-(FindNeighbors(newganoids_stim, dims = 1:30, verbose = FALSE))
+newganoids_stim<-FindClusters(newganoids_stim, verbose = FALSE)
+p2<-DimPlot(newganoids_stim, label = TRUE) + NoLegend()
+plot_grid(p1,p2)
+
+#So the tsnes look different here which is not unexpected - I should try and feed into the integrated analysis here
+#Can I actually do this because the data gets transformed again after integration? 
+```
+
+
+```{r processing}
+#How much of this was done to the old object and is redundant? I want to try out sctransform but will the data have already been normalized/scaled?
+
+newganoids_ctrl$stim <- "CTRL"
+newganoids_ctrl<-subset(newganoids_ctrl, subset = nFeature_RNA > 500)
+
+newganoids_stim$stim <- "STIM"
+newganoids_stim<-subset(newganoids_stim, subset = nFeature_RNA > 500)
+
+newganoid.anchors<-FindIntegrationAnchors(object.list = list(newganoids_ctrl, newganoids_stim), dims = 1:20)
+newganoids.combined<- IntegrateData(anchorset = newganoid.anchors, dims = 1:20)
+
+
+DefaultAssay(newganoids.combined) <-"integrated"
+newganoids.combined<-ScaleData(newganoids.combined, verbose = FALSE)
+newganoids.combined<-RunPCA (newganoids.combined, npcs = 30, verbose = FALSE)
+newganoids.combined <-RunUMAP (newganoids.combined, reduction = "pca", dims = 1:12)
+newganoids.combined<-FindNeighbors(newganoids.combined, reduction = "pca", dims = 1:20)
+```
+```{r find clusters}
+newganoids.combined<-FindClusters(newganoids.combined, resolution = 0.8)
+p1 <-DimPlot(newganoids.combined, reduction = "umap", group.by = "stim")
+pumap <-DimPlot(newganoids.combined, reduction = "umap", label = TRUE)
+p3 <-DimPlot(newganoids.combined, reduction = "umap", group.by = "integrated_snn_res.0.8", split.by = "stim")
+p4 <-DimPlot(newganoids.combined, reduction = "umap", group.by = "integrated_snn_res.0.8", split.by = "hash_maxID")
+
+plot_grid (p1,p2)
+
+p1 <-DimPlot(loadganoids, reduction = "umap", group.by = "stim")
+pumap <-DimPlot(loadganoids, reduction = "umap", label = TRUE)
+p3 <-DimPlot(loadganoids, reduction = "umap", group.by = "integrated_snn_res.0.8", split.by = "stim")
+p4 <-DimPlot(loadganoids, reduction = "umap", group.by = "integrated_snn_res.0.8", split.by = "hash_maxID")
+
+
+```
+
+
+```{r clustree} 
+#my current res is 0.8
+newganoids.combined1<-FindClusters(newganoids.combined, resolution = 0.1)
+newganoids.combined2<-FindClusters(newganoids.combined, resolution = 0.2)
+newganoids.combined3<-FindClusters(newganoids.combined, resolution = 0.3)
+newganoids.combined4<-FindClusters(newganoids.combined, resolution = 0.4)
+newganoids.combined5<-FindClusters(newganoids.combined, resolution = 0.5)
+newganoids.combined6<-FindClusters(newganoids.combined, resolution = 0.6)
+newganoids.combined7<-FindClusters(newganoids.combined, resolution = 0.7)
+newganoids.combined8<-FindClusters(newganoids.combined, resolution = 0.8)
+newganoids.combined9<-FindClusters(newganoids.combined, resolution = 0.9)
+newganoids.combined10<-FindClusters(newganoids.combined, resolution = 1.0)
+
+clusts0.1<-newganoids.combined1@meta.data$integrated_snn_res.0.1
+clusts0.2<-newganoids.combined2@meta.data$integrated_snn_res.0.2
+clusts0.3<-newganoids.combined3@meta.data$integrated_snn_res.0.3
+clusts0.4<-newganoids.combined4@meta.data$integrated_snn_res.0.4
+clusts0.5<-newganoids.combined5@meta.data$integrated_snn_res.0.5
+clusts0.6<-newganoids.combined6@meta.data$integrated_snn_res.0.6
+clusts0.7<-newganoids.combined7@meta.data$integrated_snn_res.0.7
+clusts0.8<-newganoids.combined8@meta.data$integrated_snn_res.0.8
+clusts0.9<-newganoids.combined9@meta.data$integrated_snn_res.0.9
+clusts1.0<-newganoids.combined10@meta.data$integrated_snn_res.1
+
+
+clusts<-data.frame(clusts0.1, clusts0.2, clusts0.3, clusts0.4,clusts0.5,clusts0.6,clusts0.7,clusts0.8,clusts0.9,clusts1.0)
+clustree(clusts, prefix = "clusts")
+
+c1<-DimPlot(newganoids.combined1, reduction = "umap", label = TRUE)
+c2<-DimPlot(newganoids.combined3, reduction = "umap", label = TRUE)
+c3<-DimPlot(newganoids.combined5, reduction = "umap", label = TRUE)
+c4<-DimPlot(newganoids.combined7, reduction = "umap", label = TRUE)
+c5<-DimPlot(newganoids.combined9, reduction = "umap", label = TRUE)
+c6<-DimPlot(newganoids.combined10, reduction = "umap", label = TRUE)
+plot_grid(c1,c2,c3,c4,c5,c6)
+```
+
+```{r proportion code}
+
+
+colnames(newganoids.combined@meta.data)
+
+
+
+test3<-newganoids.combined@meta.data %>% group_by(orig.ident,integrated_snn_res.0.8) %>% summarise(tot.per.cluster=n())%>%
+  group_by(orig.ident) %>%
+  mutate(tot.organoid.pt= sum(tot.per.cluster)) %>%
+  mutate(percent=100*tot.per.cluster/tot.organoid.pt)
+
+test3
+
+
+#Stop here Monday afternoon 08/05
+
+
+ggplot(test3, aes(hash_maxID, percent, fill=integrated_snn_res.0.8)) + geom_bar(stat="identity", position="stack", colour ="black") + theme(axis.text.x = element_text(angle=32,hjust=1))
+
+#I can modifiy the number after res to present different numbers of pops
+
+
+test4<-newganoids.combined@meta.data %>% group_by(stim, integrated_snn_res.0.8) %>% summarise(tot.per.cluster=n())%>%
+  group_by(stim) %>%
+  mutate(tot.organoid.pt= sum(tot.per.cluster)) %>%
+  mutate(percent=100*tot.per.cluster/tot.organoid.pt)
+
+test4
+ggplot(test4, aes(stim, percent, fill=integrated_snn_res.0.8)) +geom_bar(stat="identity", position="stack", colour ="black") + theme(axis.text.x = element_text(angle=32,hjust=1))
+
+
+
+
+
+test5<-newganoids.combined@meta.data %>% group_by(hash_maxID, integrated_snn_res.0.8) %>% summarise(tot.per.cluster=n())%>%
+  group_by(hash_maxID) %>%
+  mutate(tot.organoid.pt= sum(tot.per.cluster)) %>%
+  mutate(percent=100*tot.per.cluster/tot.organoid.pt)
+
+ggplot(test5, aes(hash_maxID, percent, fill=integrated_snn_res.0.8)) +geom_bar(stat="identity", position="stack", colour ="black") + theme(axis.text.x = element_text(angle=32,hjust=1))
+
+
+write.csv(test5, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190806_identity_hashmaxID.csv")
+
+Idents(newganoids.combined)
+#There may be a way to do this better
+table(Idents(newganoids.combined))
+
+
+FeaturePlot(loadganoids, features = "PCP4", min.cutoff = "q9", pt.size = 0.1)
+FeaturePlot(loadganoids, features = "PCP4", min.cutoff = "q9", pt.size = 0.1)
+
+
+
+```
+
+```{r viz and find markers}
+
+
+DefaultAssay(newganoids.combined) <- "integrated"
+pop0.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 0, grouping.var = "stim", verbose = FALSE)
+head(pop0.markers)
+write.csv(pop0.markers, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190806Pop0markers_integrated.csv")
+
+
+pop1.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 1, grouping.var = "stim", verbose = FALSE)
+head(pop1.markers)
+write.csv(pop1.markers, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190806Pop1markers_integrated.csv")
+
+
+pop2.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 2, grouping.var = "stim", verbose = FALSE)
+head(pop2.markers)
+write.csv(pop2.markers, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190806Pop2markers_integrated.csv")
+
+
+pop3.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 3, grouping.var = "stim", verbose = FALSE)
+head(pop3.markers)
+write.csv(pop3.markers, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190806Pop3markers_integrated.csv")
+
+
+pop4.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 4, grouping.var = "stim", verbose = FALSE)
+head(pop4.markers)
+write.csv(pop4.markers, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190806Pop4markers_integrated.csv")
+
+
+pop5.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 5, grouping.var = "stim", verbose = FALSE)
+head(pop5.markers)
+write.csv(pop5.markers, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190806Pop5markers_integrated.csv")
+
+
+pop6.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 6, grouping.var = "stim", verbose = FALSE)
+head(pop6.markers)
+write.csv(pop6.markers, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190806Pop6markers_integrated.csv")
+
+
+pop7.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 7, grouping.var = "stim", verbose = FALSE)
+head(pop7.markers)
+write.csv(pop7.markers, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190806Pop7markers_integrated.csv")
+
+pop8.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 8, grouping.var = "stim", verbose = FALSE)
+head(pop8.markers)
+write.csv(pop8.markers, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190806Pop8markers_integrated.csv")
+
+pop9.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 9, grouping.var = "stim", verbose = FALSE)
+head(pop9.markers)
+write.csv(pop9.markers, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190806Pop09markers_integrated.csv")
+
+pop10.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 10, grouping.var = "stim", verbose = FALSE)
+head(pop10.markers)
+write.csv(pop10.markers, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190806Pop10markers_integrated.csv")
+
+pop11.markers <- FindConservedMarkers(newganoids.combined, ident.1 = 11, grouping.var = "stim", verbose = FALSE)
+head(pop11.markers)
+write.csv(pop11.markers, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190806Pop11markers_integrated.csv")
+
+
+```
+
+```{r vizualize clusters}
+FeaturePlot(newganoids.combined, features = c(rownames(pop0.markers)[1:6]), min.cutoff = "q9", pt.size = 0.1)
+FeaturePlot(newganoids.combined, features = c(rownames(pop1.markers)[1:6]), min.cutoff = "q9", pt.size = 0.1)
+FeaturePlot(newganoids.combined, features = c(rownames(pop2.markers)[1:6]), min.cutoff = "q9", pt.size = 0.1)
+FeaturePlot(newganoids.combined, features = c(rownames(pop3.markers)[1:6]), min.cutoff = "q9", pt.size = 0.1)
+FeaturePlot(newganoids.combined, features = c(rownames(pop4.markers)[1:6]), min.cutoff = "q9", pt.size = 0.1)
+FeaturePlot(newganoids.combined, features = c(rownames(pop5.markers)[1:6]), min.cutoff = "q9", pt.size = 0.1)
+FeaturePlot(newganoids.combined, features = c(rownames(pop6.markers)[1:6]), min.cutoff = "q9", pt.size = 0.1)
+FeaturePlot(newganoids.combined, features = c(rownames(pop7.markers)[1:6]), min.cutoff = "q9", pt.size = 0.1)
+FeaturePlot(newganoids.combined, features = c(rownames(pop8.markers)[1:6]), min.cutoff = "q9", pt.size = 0.1)
+FeaturePlot(newganoids.combined, features = c(rownames(pop9.markers)[1:6]), min.cutoff = "q9", pt.size = 0.1)
+FeaturePlot(newganoids.combined, features = c(rownames(pop10.markers)[1:6]), min.cutoff = "q9", pt.size = 0.1)
+FeaturePlot(newganoids.combined, features = c(rownames(pop11.markers)[1:6]), min.cutoff = "q9", pt.size = 0.1)
+
+pdf("~/Desktop/withfilename.pdf", height =1137 ,width = 842) 
+pmax<-FeaturePlot(newganoids.combined, features = c("PTCH1","PTCH2", "SHH", "SMO"), min.cutoff = "q9", pt.size = 0.1)
+pplot<-plot_grid(pmax,p2)
+
+Pdf("~/Desktop/withfilename.pdf/", 1137 ,842, units) 
+
+jonlist<-read.csv("~/Desktop/Working/jonlist.csv", header = T)
+
+pjon<-FeaturePlot(carter_sct, features = c("Lhx9", "Olig2", "Tbr1", "Lhx1", "Lhx5", "Ptf1a","Neurog1", "Neurog2", "Ascl1", "Atoh1", "Barhl1", "Pax6" ), min.cutoff = "q9", pt.size = 0.1)
+
+pjon2<-FeaturePlot(carter_sct, features = c("Zic1", "Zic4", "Neurod1", "Foxp2", "Gad2", "Pax2", "Gad1", "Pnoc", "Glra2", "Foxp1", "Tle1", "Lmx1a", "Hes1", "Hes5"), min.cutoff = "q9", pt.size = 0.1)
+
+
+
+plotjon<-plot_grid(p1,pjon)
+
+vjon<-VlnPlot(carter_sct, features = "Shh", group.by = "cell_type", split.by = "sample_id", pt.size = 0, combine = FALSE)
+#
+```
+```{r rename idents}
+  saveRDS(newganoids.combined, file ="~/Desktop/20190807vs2_v3update_newganoidscombined.rds")
+
+loadganoids<-readRDS(file ="~/Desktop/20190807vs2_v3update_newganoidscombined.rds")
+
+Idents(newganoids.combined) 
+
+newganoids.combined<-RenameIdents(newganoids.combined, `0` = "Choroid plexus", `1` = "Glutamatergic DCN",`2` = "Vascularised roof plate", `3` = "Bergmann Glia",`4` = "Granule cells-S",`5` = "Granule cell precursors",`6` = "Purkinje neurons",`7` = "Roof plate",`8` = "Granule cells-G2M",`9` = "Rhombic lip precursors",`10` = "Unknown",`11` =  "Ciliated ependymal cells" )
+
+Idents(newganoids.combined) 
+
+p1 <-DimPlot(newganoids.combined, reduction = "umap", group.by = "stim")
+p2 <-DimPlot(newganoids.combined, reduction = "umap", label = TRUE, repel = TRUE)
+p3 <-DimPlot(newganoids.combined, reduction = "umap", group.by = "integrated_snn_res.0.8", split.by = "stim",label = TRUE, repel = TRUE)
+p4 <-DimPlot(newganoids.combined, reduction = "umap", group.by = "integrated_snn_res.0.8", split.by = "hash_maxID",label = TRUE, repel = TRUE)
+
+
+
+markers.to.plot <- c(rownames(pop0.markers)[1:6])
+DotPlot(newganoids.combined, features = rev(markers.to.plot), cols = c("blue", "green"), dot.scale = 8, split.by = "stim") + RotatedAxis()
+
+markers.to.plot2 <- c(rownames(pop1.markers)[1:6])
+DotPlot(newganoids.combined, features = rev(markers.to.plot2), cols = c("blue", "green"), dot.scale = 8, split.by = "stim") + RotatedAxis()
+
+markers.to.plot3 <- c(rownames(pop2.markers)[1:6])
+DotPlot(newganoids.combined, features = rev(markers.to.plot3), cols = c("blue", "green"), dot.scale = 8, split.by = "stim") + RotatedAxis()
+
+markers.to.plot4 <- c(rownames(pop3.markers)[1:6])
+DotPlot(newganoids.combined, features = rev(markers.to.plot4), cols = c("blue", "green"), dot.scale = 8, split.by = "stim") + RotatedAxis()
+
+markers.to.plot5 <- c(rownames(pop4.markers)[1:6])
+DotPlot(newganoids.combined, features = rev(markers.to.plot5), cols = c("blue", "green"), dot.scale = 8, split.by = "stim") + RotatedAxis()
+
+markers.to.plot6 <- c(rownames(pop5.markers)[1:6])
+DotPlot(newganoids.combined, features = rev(markers.to.plot6), cols = c("blue", "green"), dot.scale = 8, split.by = "stim") + RotatedAxis()
+
+markers.to.plot7 <- c(rownames(pop6.markers)[1:6])
+DotPlot(newganoids.combined, features = rev(markers.to.plot7), cols = c("blue", "green"), dot.scale = 8, split.by = "stim") + RotatedAxis()
+
+markers.to.plot8 <- c(rownames(pop7.markers)[1:6])
+DotPlot(newganoids.combined, features = rev(markers.to.plot8), cols = c("blue", "green"), dot.scale = 8, split.by = "stim") + RotatedAxis()
+
+markers.to.plot9 <- c(rownames(pop8.markers)[1:6])
+DotPlot(newganoids.combined, features = rev(markers.to.plot9), cols = c("blue", "green"), dot.scale = 8, split.by = "stim") + RotatedAxis()
+
+markers.to.plot10 <- c(rownames(pop9.markers)[1:6])
+DotPlot(newganoids.combined, features = rev(markers.to.plot10), cols = c("blue", "green"), dot.scale = 8, split.by = "stim") + RotatedAxis()
+
+markers.to.plot11 <- c(rownames(pop10.markers)[1:6])
+DotPlot(newganoids.combined, features = rev(markers.to.plot11), cols = c("blue", "green"), dot.scale = 8, split.by = "stim") + RotatedAxis()
+
+markers.to.plot12 <- c(rownames(pop11.markers)[1:6])
+DotPlot(newganoids.combined, features = rev(markers.to.plot12), cols = c("blue", "green"), dot.scale = 8, split.by = "stim") + RotatedAxis()
+
+
+markers.to.plot_all <- c(rownames(pop0.markers)[1:6],rownames(pop1.markers)[1:6], rownames(pop2.markers)[1:6], rownames(pop3.markers)[1:6], rownames(pop4.markers)[1:6], rownames(pop5.markers)[1:6], rownames(pop6.markers)[1:6],rownames(pop7.markers)[1:6], rownames(pop8.markers)[1:6], rownames(pop9.markers)[1:6], rownames(pop10.markers)[1:6], rownames(pop11.markers)[1:6])
+
+
+DotPlot(newganoids.combined, features = rev(markers.to.plot_all), cols = c("blue", "red"), dot.scale = 2, split.by = "stim") + theme(axis.text=element_text(size=8)) + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+```{r heatmaps}
+carterlist<-c("SPARC", "NES", "ID1", "ID3", "HES5", "MSX1", "TMEM163", "MEIS2", "LHX2", "LHX9", "GREM2", "GNG8", "EVX1", "SELM", "PAX6", "MFAP4", "NEUROD1", "ATOH1", "BARHL1", "PPP2R2C", "TLX3", "LHX5", "LHX1", "GAD2", "GAD1", "FOXP2", "GM27199", "SLC32A1", "CALB1", "RORA", "PAX2", "LBX1", "OPTC", "ALDH1L1", "ALDOC", "HOPX", "TIMP4", "NDRG2", "GDF10", "SOX9", "SOX10", "SLC1A3", "SPARCL1", "VTN", "BGN", "FOXC1", "CLDN5", "IGFBP7", "VAMP5", "CLEC1B", "CD34", "PECAM1", "DYNLRB2", "MEI1", "DCN", "SLC6A13", "COL3A1", "COL1A2", "KRT18", "COLEC12", "RSPO1", "CAMBI", "HBA-A2", "ALAS2", "HBB-BT","FECH", "LY86", "FCER1G", "TMEM119", "ITGAM", "OLIG1", "MATN4", "ISL1", "SNCG", "DLK1", "LMX1A")
+
+markers.to.plot_all2<-markers.to.plot_all[-41]
+markers.to.plot_all2<-markers.to.plot_all2[-30]
+
+#Will not plot elements that are not in the data slot, am plotting scale by default but should examine other slots?
+
+#Top variable genes to define populations minus EIF1 and RAD51
+DoHeatmap(newganoids.combined, features = markers.to.plot_all2, cells = 1:1653, group.by = "integrated_snn_res.0.8",
+  group.bar = TRUE, disp.min = -2.5, disp.max = NULL,
+  slot = "scale.data", assay = NULL, label = TRUE, size = 5.5,
+  hjust = 0, angle = 45, raster = TRUE, draw.lines = TRUE,
+  lines.width = NULL, group.bar.height = 0.02, combine = TRUE)
+
+#Selected Carter
+DoHeatmap(newganoids.combined, features = carterlist, cells = 1:1653, group.by = "integrated_snn_res.0.8",
+  group.bar = TRUE, disp.min = -2.5, disp.max = NULL,
+  slot = "scale.data", assay = NULL, label = TRUE, size = 5.5,
+  hjust = 0, angle = 45, raster = TRUE, draw.lines = TRUE,
+  lines.width = NULL, group.bar.height = 0.02, combine = TRUE)
+
+```
+
+```{r DE across pops}
+#Revisit this
+#Idents(newganoids.combined,"stim") ->d
+#de<-FindMarkers(d, ident.1 = "CTRL",ident.2 = "STIM")
+#derownames<-(rownames(de))
+#DoHeatmap(object = organoids.combined, genes.use = derownames, slim.col.label = TRUE, remove.key = TRUE)
+#maybe this is defunct with sv3
+#this works now
+Idents(newganoids.combined)<-"stim"
+test<-FindMarkers(newganoids.combined, ident.1='STIM')
+rownames(test)
+DoHeatmap(newganoids.combined, features = rownames(test), cells = 1:1653, group.by = "stim",
+  group.bar = TRUE, disp.min = -2.5, disp.max = NULL,
+  slot = "scale.data", assay = NULL, label = TRUE, size = 5.5,
+  hjust = 0, angle = 45, raster = TRUE, draw.lines = TRUE,
+  lines.width = NULL, group.bar.height = 0.02, combine = TRUE)
+
+p1 <-DimPlot(newganoids.combined, reduction = "umap", group.by = "", split.by = "stim")
+#plot upregulated genes
+cenpf<-VlnPlot(newganoids.combined, features = "CENPF", split.by = "stim", group.by = 'stim', pt.size = 0, combine = TRUE)
+kpna2<-VlnPlot(newganoids.combined, features = "KPNA2", split.by = "stim", group.by = 'stim', pt.size = 0, combine = TRUE)
+ccnb1<-VlnPlot(newganoids.combined, features =  "CCNB1", split.by = "stim", group.by = 'stim', pt.size = 0, combine = TRUE)
+ccnb2<-VlnPlot(newganoids.combined, features =  "CCNB2", split.by = "stim", group.by = 'stim', pt.size = 0, combine = TRUE)
+birc5<-VlnPlot(newganoids.combined, features = "BIRC5", split.by = "stim", group.by = 'stim', pt.size = 0, combine = TRUE)
+hes6<-VlnPlot(newganoids.combined, features =  "HES6", split.by = "stim", group.by = 'stim', pt.size = 0, combine = TRUE)
+
+lel<-plot_grid(cenpf, kpna2, ccnb1, ccnb2, birc5, hes6) 
+
+save_plot("20190905DE_gross_top6.png", lel, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.6)
+
+#plot downregulated genes
+id1<-VlnPlot(newganoids.combined, features = "ID1", split.by = "stim", group.by = 'stim', pt.size = 0, combine = TRUE)
+dcn<-VlnPlot(newganoids.combined, features = "DCN", split.by = "stim", group.by = 'stim', pt.size = 0, combine = TRUE)
+ttr<-VlnPlot(newganoids.combined, features =  "TTR", split.by = "stim", group.by = 'stim', pt.size = 0, combine = TRUE)
+trh<-VlnPlot(newganoids.combined, features =  "TRH", split.by = "stim", group.by = 'stim', pt.size = 0, combine = TRUE)
+cxcl12<-VlnPlot(newganoids.combined, features = "CXCL12", split.by = "stim", group.by = 'stim', pt.size = 0, combine = TRUE)
+pcp4<-VlnPlot(newganoids.combined, features =  "PCP4", split.by = "stim", group.by = 'stim', pt.size = 0, combine = TRUE)
+
+lel2<-plot_grid(id1,dcn, ttr,trh,cxcl12,pcp4) 
+
+save_plot("20190905DE_gross_top6down.png", lel, 
+          ncol = 3, 
+          nrow = 2,
+          base_aspect_ratio = 1.6)
+
+```{DE across conditions}
+#Identify differential expressed genes across conditions
+#Now that we’ve aligned the stimulated and control cells, we can start to do comparative analyses and look at the differences induced by stimulation. One way to look broadly at these changes is to plot the average expression of both the stimulated and control cells and look for genes that are visual outliers on a scatter plot. Here, we take the average expression of both the stimulated and control naive T cells and CD14 monocyte populations and generate the scatter plots, highlighting genes that exhibit dramatic responses to interferon stimulation.
+
+Idents(newganoids.combined) <-'integrated_snn_res.0.8'
+
+Pop0 <- subset(newganoids.combined, idents = "0")
+Idents(Pop0) <- "stim"
+avg.Pop0 <- log1p(AverageExpression(Pop0, verbose = FALSE)$RNA)
+avg.Pop0$gene <- rownames(avg.Pop0)
+
+Pop1 <- subset(newganoids.combined, idents = "1")
+Idents(Pop1) <- "stim"
+avg.Pop1 <- log1p(AverageExpression(Pop1, verbose = FALSE)$RNA)
+avg.Pop1$gene <- rownames(avg.Pop1)
+
+Pop2 <- subset(newganoids.combined, idents = "2")
+Idents(Pop2) <- "stim"
+avg.Pop2 <- log1p(AverageExpression(Pop2, verbose = FALSE)$RNA)
+avg.Pop2$gene <- rownames(avg.Pop2)
+
+Pop3 <- subset(newganoids.combined, idents = "3")
+Idents(Pop3) <- "stim"
+avg.Pop3 <- log1p(AverageExpression(Pop3, verbose = FALSE)$RNA)
+avg.Pop3$gene <- rownames(avg.Pop3)
+
+Pop4 <- subset(newganoids.combined, idents = "4")
+Idents(Pop4) <- "stim"
+avg.Pop4 <- log1p(AverageExpression(Pop4, verbose = FALSE)$RNA)
+avg.Pop4$gene <- rownames(avg.Pop4)
+
+Pop5 <- subset(newganoids.combined, idents = "5")
+Idents(Pop5) <- "stim"
+avg.Pop5 <- log1p(AverageExpression(Pop5, verbose = FALSE)$RNA)
+avg.Pop5$gene <- rownames(avg.Pop5)
+
+Pop6 <- subset(newganoids.combined, idents = "6")
+Idents(Pop6) <- "stim"
+avg.Pop6 <- log1p(AverageExpression(Pop6, verbose = FALSE)$RNA)
+avg.Pop6$gene <- rownames(avg.Pop6)
+
+Pop7 <- subset(newganoids.combined, idents = "7")
+Idents(Pop7) <- "stim"
+avg.Pop7 <- log1p(AverageExpression(Pop7, verbose = FALSE)$RNA)
+avg.Pop7$gene <- rownames(avg.Pop7)
+
+Pop8 <- subset(newganoids.combined, idents = "8")
+Idents(Pop8) <- "stim"
+avg.Pop8 <- log1p(AverageExpression(Pop8, verbose = FALSE)$RNA)
+avg.Pop8$gene <- rownames(avg.Pop8)
+
+Pop9 <- subset(newganoids.combined, idents = "9")
+Idents(Pop9) <- "stim"
+avg.Pop9 <- log1p(AverageExpression(Pop9, verbose = FALSE)$RNA)
+avg.Pop9$gene <- rownames(avg.Pop9)
+
+Pop10 <- subset(newganoids.combined, idents = "10")
+Idents(Pop10) <- "stim"
+avg.Pop10 <- log1p(AverageExpression(Pop10, verbose = FALSE)$RNA)
+avg.Pop10$gene <- rownames(avg.Pop10)
+
+Pop11 <- subset(newganoids.combined, idents = "11")
+Idents(Pop11) <- "stim"
+avg.Pop11 <- log1p(AverageExpression(Pop11, verbose = FALSE)$RNA)
+avg.Pop11$gene <- rownames(avg.Pop11)
+
+
+
+###change text colour
+
+genes.to.label = rownames(Pop0.response)[1:6]
+p0 <- ggplot(avg.Pop0, aes(CTRL, STIM)) + geom_point() + ggtitle("Pop0")
+p0 <- LabelPoints(plot = p0, points = genes.to.label, repel = TRUE)
+
+genes.to.label = rownames(Pop1.response)[1:6]
+p1 <- ggplot(avg.Pop1, aes(CTRL, STIM)) + geom_point() + ggtitle("Pop1")
+p1 <- LabelPoints(plot = p1, points = genes.to.label, repel = TRUE)
+
+genes.to.label = rownames(Pop2.response)[1:6]
+p2 <- ggplot(avg.Pop2, aes(CTRL, STIM)) + geom_point() + ggtitle("Pop2")
+p2 <- LabelPoints(plot = p2, points = genes.to.label, repel = TRUE)
+
+genes.to.label = rownames(Pop3.response)[1:6]
+p3 <- ggplot(avg.Pop3, aes(CTRL, STIM)) + geom_point() + ggtitle("Pop3")
+p3 <- LabelPoints(plot = p3, points = genes.to.label, repel = TRUE)
+
+genes.to.label = rownames(Pop4.response)[1:6]
+p4 <- ggplot(avg.Pop4, aes(CTRL, STIM)) + geom_point() + ggtitle("Pop4")
+p4 <- LabelPoints(plot = p4, points = genes.to.label, repel = TRUE)
+
+genes.to.label = rownames(Pop5.response)[1:6]
+p5 <- ggplot(avg.Pop5, aes(CTRL, STIM)) + geom_point() + ggtitle("Pop5")
+p5 <- LabelPoints(plot = p5, points = genes.to.label, repel = TRUE)
+
+genes.to.label = rownames(Pop6.response)[1:6]
+p6 <- ggplot(avg.Pop6, aes(CTRL, STIM)) + geom_point() + ggtitle("Pop6")
+p6 <- LabelPoints(plot = p6, points = genes.to.label, repel = TRUE)
+
+genes.to.label = rownames(Pop7.response)[1:6]
+p7 <- ggplot(avg.Pop7, aes(CTRL, STIM)) + geom_point() + ggtitle("Pop7")
+p7 <- LabelPoints(plot = p7, points = genes.to.label, repel = TRUE)
+
+genes.to.label = rownames(Pop8.response)[1:6]
+p8 <- ggplot(avg.Pop8, aes(CTRL, STIM)) + geom_point() + ggtitle("Pop8")
+p8 <- LabelPoints(plot = p8, points = genes.to.label, repel = TRUE)
+
+genes.to.label = rownames(Pop9.response)[1:6]
+p9 <- ggplot(avg.Pop9, aes(CTRL, STIM)) + geom_point() + ggtitle("Pop9")
+p9 <- LabelPoints(plot = p9, points = genes.to.label, repel = TRUE)
+
+genes.to.label = rownames(Pop10.response)[1:6]
+p10 <- ggplot(avg.Pop10, aes(CTRL, STIM)) + geom_point() + ggtitle("Pop10")
+p10 <- LabelPoints(plot = p10, points = genes.to.label, repel = TRUE)
+
+genes.to.label = rownames(Pop11.response)[1:6]
+p11 <- ggplot(avg.Pop11, aes(CTRL, STIM)) + geom_point() + ggtitle("Pop11")
+p11 <- LabelPoints(plot = p11, points = genes.to.label, repel = TRUE)
+
+#Add some colour to points/text?
+plot_grid(p0,p1, p2,p3,p4,p5,p6,p7,p8,p9,p10,p11)
+
+
+
+#newganoids.combined[["SCT"]]@data
+#newganoids.combined[["SCT"]]@scale.data
+#Probably this one 
+newganoids.combined[["integrated"]]@scale.data
+#Although this only has 2000 genes...
+
+
+
+
+
+#As you can see, many of the same genes are upregulated in both of these cell types and likely represent a conserved interferon response pathway.
+
+#Because we are confident in having identified common cell types across condition, we can ask what genes change in different conditions for cells of the same type. First, we create a column in the meta.data slot to hold both the cell type and stimulation information and switch the current ident to that column. Then we use FindMarkers to find the genes that are different between stimulated and control B cells. Notice that many of the top genes that show up here are the same as the ones we plotted earlier as core interferon response genes. Additionally, genes like CXCL10 which we saw were specific to monocyte and B cell interferon response show up as highly significant in this list as well.
+library(enrichR)
+dbs<-c("GO_Biological_Process_2018", "Panther_2015", "WikiPathways_2019_Human", "KEGG_2019_Human")
+
+
+newganoids.combined$celltype.stim <- paste(Idents(newganoids.combined), newganoids.combined$stim, sep = "_")
+newganoids.combined$celltype <- Idents(newganoids.combined)
+Idents(newganoids.combined) <- "celltype.stim"
+
+Pop0.response <- FindMarkers(newganoids.combined, ident.1 = "0_STIM", ident.2 = "0_CTRL", verbose = FALSE)
+head(Pop0.response, n = 15)
+write.csv(Pop0.response, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190906DEPop0MGvsCTRL.csv")
+#Add enrichr per pop, test this and copy for others
+Pop0<-read.csv("~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190906DEPop0MGvsCTRL.csv")
+dim(Pop0.response)
+Pop0.response.filt<-rownames(Pop0.response[which(Pop0.response$p_val<0)])
+Pop0.response.enrichr<-enrichr(Pop0.response.filt, dbs)
+write.csv(Pop0.response.enrichr, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190906DEPop0MGvsCTRL_enrichr.csv")
+
+
+Pop1.response <- FindMarkers(organoids.combined, ident.1 = "1_STIM", ident.2 = "1_CTRL", verbose = FALSE)
+head(Pop1.response, n = 15)
+write.csv(Pop1.response, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190906DEPop01MGvsCTRL.csv")
+###add enrichr
+
+Pop2.response <- FindMarkers(newganoids.combined, ident.1 = "2_STIM", ident.2 = "2_CTRL", verbose = FALSE)
+head(Pop2.response, n = 15)
+write.csv(Pop2.response, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190906DEPop02MGvsCTRL.csv")
+###add enrichr
+
+Pop3.response <- FindMarkers(newganoids.combined, ident.1 = "3_STIM", ident.2 = "3_CTRL", verbose = FALSE)
+head(Pop3.response, n = 15)
+write.csv(Pop3.response, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190906DEPop03MGvsCTRL.csv")
+###add enrichr
+
+
+Pop4.response <- FindMarkers(newganoids.combined, ident.1 = "4_STIM", ident.2 = "4_CTRL", verbose = FALSE)
+head(Pop4.response, n = 15)
+write.csv(Pop4.response, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190906DEPop04MGvsCTRL.csv")
+###add enrichr
+
+
+
+Pop5.response <- FindMarkers(newganoids.combined, ident.1 = "5_STIM", ident.2 = "5_CTRL", verbose = FALSE)
+head(Pop5.response, n = 15)
+write.csv(Pop5.response, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190906DEPop05MGvsCTRL.csv")
+###add enrichr
+
+
+Pop6.response <- FindMarkers(newganoids.combined, ident.1 = "6_STIM", ident.2 = "6_CTRL", verbose = FALSE)
+head(Pop6.response, n = 15)
+write.csv(Pop6.response, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190906DEPop06MGvsCTRL.csv")
+###add enrichr
+
+
+Pop7.response <- FindMarkers(newganoids.combined, ident.1 = "7_STIM", ident.2 = "7_CTRL", verbose = FALSE)
+head(Pop7.response, n = 15)
+write.csv(Pop7.response, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190906DEPop07MGvsCTRL.csv")
+###add enrichr
+
+
+Pop8.response <- FindMarkers(newganoids.combined, ident.1 = "8_STIM", ident.2 = "8_CTRL", verbose = FALSE)
+head(Pop8.response, n = 15)
+write.csv(Pop8.response, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190906DEPop08MGvsCTRL.csv")
+###add enrichr
+
+
+Pop9.response <- FindMarkers(newganoids.combined, ident.1 = "9_STIM", ident.2 = "9_CTRL", verbose = FALSE)
+head(Pop9.response, n = 15)
+write.csv(Pop9.response, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190906DEPop09MGvsCTRL.csv")
+###add enrichr
+
+
+Pop10.response <- FindMarkers(newganoids.combined, ident.1 = "10_STIM", ident.2 = "10_CTRL", verbose = FALSE)
+head(Pop10.response, n = 15)
+write.csv(Pop10.response, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190906DEPop10MGvsCTRL.csv")
+###add enrichr
+
+Pop11.response <- FindMarkers(newganoids.combined, ident.1 = "11_STIM", ident.2 = "11_CTRL", verbose = FALSE)
+head(Pop11.response, n = 15)
+write.csv(Pop11.response, "~/Desktop/Organoids/Dataforpaperv2Updatedv3/20190906DEPop11MGvsCTRL.csv")
+
+#gather all genes to make a heatmap
+
+allDE_pops_pooled<-c(rownames(Pop0.response), rownames(Pop1.response), rownames(Pop2.response), rownames(Pop3.response),rownames(Pop4.response), rownames(Pop5.response), rownames(Pop6.response), rownames(Pop7.response), rownames(Pop8.response), rownames(Pop9.response), rownames(Pop10.response), rownames(Pop11.response))
+                                                                                    DoHeatmap(newganoids.combined, features = allDE_pops_pooled, cells = 1:1653, group.by = "integrated_snn_res.0.8",
+  group.bar = TRUE, disp.min = -2.5, disp.max = NULL,
+  slot = "scale.data", assay = NULL, label = TRUE, size = 5.5,
+  hjust = 0, angle = 45, raster = TRUE, draw.lines = TRUE,
+  lines.width = NULL, group.bar.height = 0.02, combine = TRUE)                                                                                                                                                                       
+                                                                                                                                                                                                                                                              
+#I SHOULD RUN THESE THROUGH ENRICHR
+#I SHOULD ALSO LOOK INTO HOW TO COMPARE GROSS CHANGES ACROSS ORGANOIDS POOLED AS TREATMENT CONDITIONS
+```
+
+```{r DE violins}
+#Another useful way to visualize these changes in gene expression is with the split.by option to the FeaturePlot or VlnPlot function. This will display FeaturePlots of the list of given genes, split by a grouping variable (stimulation condition here). Genes such as CD3D and GNLY are canonical cell type markers (for T cells and NK/CD8 T cells) that are virtually unaffected by interferon stimulation and display similar gene expression patterns in the control and stimulated group. IFI6 and ISG15, on the other hand, are core interferon response genes and are upregulated accordingly in all cell types. Finally, CD14 and CXCL10 are genes that show a cell type specific interferon response. CD14 expression decreases after stimulation in CD14 monocytes, which could lead to misclassification in a supervised analysis framework, underscoring the value of integrated analysis. CXCL10 shows a distinct upregulation in monocytes and B cells after interferon stimulation but not in other cell types.
+
+FeaturePlot(newganoids.combined, features = c("FCOR", "PCP4"), split.by = "stim", max.cutoff = 3, cols = c("grey", "red"), pt.size = 0.1)
+
+
+plots <- VlnPlot(newganoids.combined, features = "TTR", split.by = "stim", group.by = "stim", pt.size = 0, combine = FALSE)
+CombinePlots(plots = plots, ncol = 1)
+
+
+FeaturePlot(newganoids.combined, features = rownames(Pop10.response)[1:6], split.by = "stim", max.cutoff = 3, cols = c("grey", "red"), pt.size = 0.1)
+#Useful for paper
+plots <- VlnPlot(newganoids.combined, features = rownames(Pop10.response)[1], split.by = "stim", group.by = "integrated_snn_res.0.8", pt.size = 0, combine = FALSE)
+#Useful for paper
+CombinePlots(plots = plots, ncol = 1)
+
+
+```
+
+
+
+```{r JMs lncRNA genes}
+#Should check CJ147694, AK019114, AK042843
+#These arent well documented 
+#https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2206602/
+#Could generally check lincs
+allgenes<-rownames(newganoids.combined)
+lincs<-grep("LINC", allgenes)
+allgenes[lincs]
+lincs<-allgenes[lincs]
+lncs<-grep("LNC", allgenes)
+
+
+DoHeatmap(newganoids.combined, features = lincs, cells = 1:1653, group.by = "integrated_snn_res.0.8",
+  group.bar = TRUE, disp.min = -2.5, disp.max = NULL,
+  slot = "scale.data", assay = NULL, label = TRUE, size = 5.5,
+  hjust = 0, angle = 45, raster = TRUE, draw.lines = TRUE,
+  lines.width = NULL, group.bar.height = 0.02, combine = TRUE)
+
+FetchData(newganoids.combined)
+DefaultAssay(newganoids.combined) <- 'integrated'
+#NOTE I MUST return the Default assay to integrated before running heatmaps
+
+
+#Things to ask Dev about
+#v2 to v3 update - SCT each dataset (normalize, regression - MITO?) Then SCALE for integration
+#de, scID, PEARSON
+#lincs
+#dnd
+
+#Lets change active assay to look at all genes?
+DefaultAssay(newganoids.combined) <- 'RNA'
+
+litlist<-read.csv("~/Desktop/Working/20190226LitMarkers.csv", header = T)
+lithm<-DoHeatmap(newganoids.combined, features = litlist$Gene, cells = 1:1653, group.by = "integrated_snn_res.0.8",
+  group.bar = TRUE, disp.min = -2.5, disp.max = NULL,
+  slot = "scale.data", assay = NULL, label = TRUE, size = 5.5,
+  hjust = 0, angle = 45, raster = TRUE, draw.lines = TRUE,
+  lines.width = NULL, group.bar.height = 0.02, combine = TRUE)
+
+```
+```{r look at non-coders}
+
+
+
+naylerhvg_sct_char_df<-as.data.frame(naylerhvg_sct_char)
+colnames(data)[colnames(data)=="old_name"] <- "new_name"
+colnames(naylerhvg_sct_char_df)[colnames(naylerhvg_sct_char_df)=="naylerhvg_sct_char"] <- "hgnc_symbol"
+
+
+mart1 = useMart(biomart = "ENSEMBL_MART_ENSEMBL", host="www.ensembl.org", path = "/biomart/martservice", dataset="hsapiens_gene_ensembl")
+mart2 = useMart(biomart = "ENSEMBL_MART_ENSEMBL", host="www.ensembl.org", path = "/biomart/martservice", dataset="mmusculus_gene_ensembl")
+
+      
+hvgnayler_sct_gene_type <-getLDS(attributes=c("hgnc_symbol"),
+       filters="hgnc_symbol", values=naylerhvg_sct_char_df, mart=mart1,
+       attributesL=c("mgi_symbol"), martL=mart2, filtersL = "with_hsapiens_homolog", valuesL = T)
+
+
+```
+```{play with heatmap options]
+
+scidpop2<-read.csv("~/Desktop/Working/scidpop2.csv", header = F)
+
+DefaultAssay(newganoids.combined) <- 'RNA'
+
+DoHeatmap(newganoids.combined, features = litlist$Gene, cells = 1:1653, group.by = "integrated_snn_res.0.8",
+  group.bar = TRUE, disp.min = -2.5, disp.max = NULL,
+  slot = "scale.data", assay = NULL, label = TRUE, size = 5.5,
+  hjust = 0, angle = 45, raster = TRUE, draw.lines = TRUE,
+  lines.width = NULL, group.bar.height = 0.02, combine = TRUE)
+
+
+
+#Set assay back
+DefaultAssay(newganoids.combined) <- 'integrated'
+
+DefaultAssay(newganoids.combined) <- 'SCT'
+
+d<-DotPlot(newganoids.combined, features = c("CALB1"), cols = c("blue", "green"), dot.scale = 8, split.by = "stim") + RotatedAxis()
+
+
+litlist2<-c("IGFBP7", "TTR", "BMP7","PCP4", "NEUROD1", "LHX9","DCX", "NCAM1","LMX1A", "RSPO1", "SPARCL1", "FABP7", "VIM", "SLC1A3", "GDF10", "PTN", "S100B", "PTPRZ1", "PAX6", "ATOH1", "BARHL1", "PLTP", "NPC2", "FOXC1", "NEUROG2", "HSPA5", "RNF7", "SERPINE2", "ATF5", "PCNA", "MKI67", "DYNLRB2", "BMP4", "SEZ6L2", "HERC1", "MYH10", "AARS")
+
+DoHeatmap(newganoids.combined, features = litlist2, cells = 1:1653, group.by = "integrated_snn_res.0.8",
+  group.bar = TRUE, disp.min = -2.5, disp.max = NULL,
+  slot = "scale.data", assay = NULL, label = TRUE, size = 5.5,
+  hjust = 0, angle = 45, raster = TRUE, draw.lines = TRUE,
+  lines.width = NULL, group.bar.height = 0.02, combine = TRUE)
+```
+
+
+```{r examine kims markers}
+DefaultAssay(newganoids.combined) <- 'SCT'
+
+DoHeatmap(newganoids.combined, features = kimlisthippo, cells = 1:1653, group.by = "integrated_snn_res.0.8",
+  group.bar = TRUE, disp.min = -2.5, disp.max = NULL,
+  slot = "scale.data", assay = NULL, label = TRUE, size = 5.5,
+  hjust = 0, angle = 45, raster = TRUE, draw.lines = TRUE,
+  lines.width = NULL, group.bar.height = 0.02, combine = TRUE)
+  
+kimlist_mouseUpperRLprog<-c("CRABP2", "NR2F6", "MEIS2", "CDKN1C", "SPSB4", "HES6", "CRABP1", "HOXB2", "HOXA2", "ISL1", "PPP1R14A", "DLL3", "PKM3", "GADD45G", "NEFM", "NEFL", "ONECUT2", "TP53|11", "CADM1", "PLK3", "ELAVL4", "SRRM4", "COTL", "NEUROG1", "PPP1R17")  
+
+kimlistmouseroofplatelikescs <-c("CDKN1C", "MFAB", "GPX3", "METRNL", "SLIT2", "ID3", "WLS", "IGFBP2", "COLEC12", "CRABP2", "SERPINH1", "FOXJ1", "HES1", "EZR", "ANXA2", "MEST", "SPON1", "GRB10", "SULF1", "MDK", "KRT18", "MSX1", "CMTM8", "BAMBI", "SOSTDC1")
+
+kimlistGCPandUBC<-c("RPGRIP1", "ATOH1", "HMGN4", "MKI67", "HMGB2", "SPC25", "PRC1", "CENPF", "TOP2A", "CCNA2", "CENPE", "NUSAP1", "SMC4", "CDCA8", "CENPA", "SMC2", "CDK1", "TPX2", "BIRC5", "FBXO5", "CDCA3", "UBE2C", "CKS1B", "CKS2", "PBK")
+
+kimlisthippo<-c("BMP6", "GDF6", "WNT4", "WNT9B", "BMP7", "WNT2B", "GDF7", "BMP2", "WNT3A", "WNT1", "TGFB2", "SOX2", "CRB2", "CTGF", "AJUBA", "WWC1")
+```
+
+```{r demo for lab}
+p1 <-DimPlot(loadganoids, reduction = "umap", group.by = "stim")
+pumap <-DimPlot(loadganoids, reduction = "umap", label = TRUE)
+p3 <-DimPlot(loadganoids, reduction = "umap", group.by = "integrated_snn_res.0.8", split.by = "stim")
+p4 <-DimPlot(loadganoids, reduction = "umap", group.by = "integrated_snn_res.0.8", split.by = "hash_maxID")
+
+DoHeatmap(newganoids.combined, features = kimlisthippo, cells = 1:1653, group.by = "integrated_snn_res.0.8",
+  group.bar = TRUE, disp.min = -2.5, disp.max = NULL,
+  slot = "scale.data", assay = NULL, label = TRUE, size = 5.5,
+  hjust = 0, angle = 45, raster = TRUE, draw.lines = TRUE,
+  lines.width = NULL, group.bar.height = 0.02, combine = TRUE)
+  
+DefaultAssay(newganoids.combined) <-"RNA"
+DefaultAssay(loadganoids) <-"RNA"
+
+ kimliste1<-c("IGF2", "PAX2", "CA8", "GRM7", "PDGFRA", "CSF1R", "MKI67", "FSTL4", "RELN", "FLT1", "LMX1A", "BCL11B", "HOXB3", "GRIA1", "AQP4")
+ 
+ kimliste2<-c("IGF2", "MEG3", "PAX2", "ITPR1", "FOXP2", "BCAS1", "PDGFRA", "CSF1R", "MKI67", "FSTL4", "RELN", "FLT1", "LMX1A", "BCL11B", "HOXB3", "GRIA1", "DNAH10", "AQP4")
+ 
+ kimliste3<-c("ZFHX3", "MEIS2", "LMX1B", "COL1A1", "CSF1R", "FLT1", "BCAS1", "PDGFRA", "TTR", "HOXB3", "RBFOX3", "PAX6", "BARHL1", "EOMES", "LMX1A", "WLS", "MKI67", "SOX2", "SLC1A3", "PAX2", "ITPR1")
+ 
+d<-DotPlot(loadganoids, features = c("FOXP1", "FOXP2"), cols = c("blue", "green"), dot.scale = 8, split.by = "stim") + RotatedAxis()
+
+d<-DotPlot(loadganoids, features = kimliste3, cols = c("blue", "green"), dot.scale = 8, split.by = "stim") + RotatedAxis()
+
+dach<-FeaturePlot(newganoids.combined, features = "TRPM3", split.by = "stim", max.cutoff = 3, cols = c("grey", "red"), pt.size = 0.1)
+#Useful for paper
+plots <- VlnPlot(newganoids.combined, features = rownames(Pop10.response)[1], split.by = "stim", group.by = "integrated_snn_res.0.8", pt.size = 0, combine = FALSE)
+  
+```
+
+
+VlnPlot(newganoids.combined, features = "CTIP1", split.by = "integrated_snn_res.0.8", pt.size = 0, combine = FALSE)
+#DefaultAssay(newganoids.combined) <-"integrated"
+
+LMX1A
+SOX2
+WLS
+TBR2
+TUJ1
+CTIP1
+PAX6
+
+
+pdf("~/Desktop/trpm3.pdf", height = 20,  width = 14) 
+dach1<-FeaturePlot(newganoids.combined, features = "TRPM3", split.by = "stim", max.cutoff = 3, cols = c("grey", "red"), pt.size = 0.1)
+dach1
+dev.off()
+

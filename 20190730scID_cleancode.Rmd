@@ -31,49 +31,157 @@ reference_clusters <- readRDS(file="~/Desktop/Example_data/scIDCarter/Final/2019
 
 target_gem <- readRDS (file="~/Desktop/Example_data/scIDCarter/Final/20190705TargetNaylerGEMMouseids.rds")
 names(target_gem)[names(target_gem) == "MGI.symbol"] <- "gene"
-rownames(target_gem) = make.unique(as.character(target_gem[, 1]))
+rownames(target_gem2) = make.unique(as.character(target_gem[, 1]))
 rownames(target_gem)
+
+target_gem2<-target_gem2[,-1]
+
 
 ```
 
 ```{r run scID}
 
-scID_outputCarterNayler <- scid_multiclass(target_gem = target_gem, reference_gem = Carter_gem, reference_clusters = reference_clusters, estimate_weights_from_target = FALSE)
+#scID_outputCarterNayler <- scid_multiclass(target_gem = target_gem2, reference_gem = Carter_gem, reference_clusters = reference_clusters, estimate_weights_from_target = FALSE)
 
-
+scID_outputCarterNayler2<- scid_multiclass(target_gem = target_gem3, reference_gem = Carter_gem, reference_clusters = reference_clusters, logFC = 0.3, only_pos = FALSE, estimate_weights_from_target = TRUE,normalize_reference=FALSE)
 
 ```
 
 
 
 ```{r outputs}
-make_heatmap(gem = Carter_gem, labels = reference_clusters, markers = scID_outputCarterNayler$markers)
+table(scID_outputCarterNayler3$labels)
+(table(scID_outputCarterNayler3$markers$cluster))
+length(scID_outputCarterNayler3$labels)
 
-make_heatmap(gem = target_gem, labels = scID_outputCarterNayler$labels, markers = scID_outputCarterNayler$markers)
 
-scID_outputCarterNayler$labels
+make_heatmap(gem = Carter_gem, labels = reference_clusters, markers = scID_outputCarterNayler3$markers)
 
-(table(scID_outputCarterNayler4$markers$cluster))
+make_heatmap(gem = target_gem3, labels = scID_outputCarterNayler3$labels, markers = scID_outputCarterNayler3$markers)
 
-write.csv (scID_outputCarterNayler$labels, file = "~/Desktop/Example_data/scIDCarter/Final/20190730a.csv")
 
-CarterIDs20190730a<-read.csv("~/Desktop/Example_data/scIDCarter/Final/20190730a.csv", header = T)
 
-organoids.combined@meta.data$CarterIDs20190730a <- CarterIDs20190730a
-#Note only 954 cells have been placed with this new method, this is causing problems to plot. Let's try Katerinas 
-#p1 <-DimPlot(organoids.combined, reduction = "umap", group.by = "dataname")
-#p2 <-DimPlot(organoids.combined, reduction = "umap", label = TRUE)
-#plot_grid (p1,p2)
+markers = scID_outputCarterNayler3$markers
+
+write.csv (scID_outputCarterNayler3$labels, file = "~/Desktop/Example_data/scIDCarter/Final/20190802_05.csv")
+write.csv (scID_outputCarterNayler3$markers, file = "~/Desktop/Example_data/scIDCarter/Final/20190802_05_markers.csv")
+
+#CarterIDs20190801a<-read.csv("~/Desktop/Example_data/scIDCarter/Final/20190801a.csv", header = T)
+
+
+organoids.combined@meta.data$CarterIDs2019080205 <- scID_outputCarterNayler3$labels
+p1 <-DimPlot(organoids.combined, reduction = "umap", group.by = "CarterIDs2019080205")
+p2 <-DimPlot(organoids.combined, reduction = "umap", label = TRUE)
+p3 <-DimPlot(organoids.combined, reduction = "umap", label = TRUE, group.by = "CarterIDs20190801b")
+plot_grid (p1,p2, p3)
+#Should explore here the option for plotting/labelling of cells
 ```
 
 ``{Katerinas way to vis cells}
-organoids.combined@meta.data$scID.ident =as.factor(CarterIDs20190730a)
-organoids.combined@meta.data$scID.ident = as.factor(scID_outputCarterNayler$labels[rownames(organoids.combined@meta.data)])
-DimPlot(organoids.combined, group.by = organoids.combined@meta.data$scID.ident)
+#organoids.combined@meta.data$scID.ident = as.factor(scID_outputCarterNayler2$labels[rownames(organoids.combined@meta.data)])
+
+
+#DimPlot(organoids.combined, reduction = "umap", group.by = organoids.combined@meta.data$scID.ident)
+#This doesnt work but try this simpler version
+DimPlot(organoids.combined, reduction = "umap", group.by = "scID.ident")
+DimPlot(organoids.combined, reduction = "umap", group.by = "scID.ident", label = TRUE)
+#This is very close - what if I can replace the numerical factors with the cell type names(I would ideally also have the time printed in)
+
+#For some reason this doesnt currently work, neither does my plotting strategy. This may be to do the fact that scID did not pick all cells.
+#What if I need to subset the cells or reset the idents?
+Idents(object = organoids.combined, cells = 1:2512) <- "scID.ident"
+
+
+#What if I used the pipe function to lookup the corresponding cell name/developmental age from the number data. I could then add that as a metadata column and project that 
+head(organoids.combined@meta.data$scID.ident)
+#[1] 22 21 35 18 22 35
+#Levels: 1 10 11 12 13 14 15 16 17 18 19 2 20 21 22 23 24 25 26 27 28 29 3 30 31 32 33 34 35 36 37 38 39 4 40 41 42 43 44 45 46 47 48 5 7 9 unassigned
+#Note populations 6 & 8 do not appear in this list? No matched cells?
+Cartpopsunique<-read.csv("/Users/samnayler/Desktop/Example_data/scIDCarter/20190717CartersPopulationsUnique.csv")
+
+#simplest way may be a merge
+scID_outputCarterNayler3labels.df<-as.data.frame(scID_outputCarterNayler3$labels)
+
+head(scID_outputCarterNayler3labels.df)
+#                   scID_outputCarterNayler2$labels
+#AAACCTGAGGTACTCT_1                              22
+#AAACCTGAGTGGACGT_1                              21
+#AAACCTGTCAGAAATG_1                              35
+#AAACCTGTCTCGGACG_1                              18
+#AAACGGGAGTACATGA_1                              22
+#AAACGGGAGTGTACTC_1                              35
+
+head(Cartpopsunique)
+# sample_id cluster_id  cell_type
+#1      E14A         31 Astrocytes
+#2      E14B         31 Astrocytes
+#3      E15A         31 Astrocytes
+#4      E15B         31 Astrocytes
+#5      E16A         31 Astrocytes
+#6      E16B         31 Astrocytes
+
+
+#Use VLOOKUP to pull out a concatenated string of time, sample rep and cell type as well as just sample cell type. Try and add to metadata
+
+write.csv(scID_outputCarterNayler3labels.df, file = "/Users/samnayler/Desktop/Example_data/scIDCarter/Final/20190802_05scid3restricted.csv")
+#Can use my VLOOKUP exel script to pull out the according cell types and then read these to metadata columns and plot
+#Need to cut the excel part out here
+
+vlooked<-read.csv("~/Desktop/Example_data/scIDCarter/Final/20190805scID3_restricted_CartersPopulationsUniqueVLOOKUPS.csv", header = T)
+vlooked$scID_20190802_05
+organoids.combined@meta.data$CarterIDs20190802_05_celltypes <- vlooked$scID_20190802_05
+p9<-DimPlot(organoids.combined, reduction = "umap", group.by = "CarterIDs20190802_05_celltypes", label = TRUE)
+plot_grid(p2,p9)
+
+#now try and add long entries with time/rep info
+organoids.combined@meta.data$CarterIDs20190802_05_celltypes_long <- vlooked$scID_20190802_05_long
+
+p10<-DimPlot(organoids.combined, reduction = "umap", group.by = "CarterIDs20190802_05_celltypes", label = TRUE, label.size = 1.5)
+plot_grid(p2,p10)
+
+
+
+write.csv(organoids.combined@meta.data, file='~/Desktop/20190802metadataorganoidscombined_seuratV3.csv', sep ="/t")
+#stopped here friday 02082019
+#To do next week
+#Update seurat object, trial sctnorm, rerun scID, pearsons with clean data/merge with hvg from filtered carter, work on cleaning projections
 
 ```
+```{resume monday 0508}
+#Have updated some of the code above to produce plots of analysis ran overnight 0208
+#How to plot dots as symbols? 
+
+p10<-DimPlot(organoids.combined, reduction = "umap", group.by = "CarterIDs20190802_05_celltypes", label = TRUE, label.size = 1.5, repel = TRUE)
+
+p11<-DimPlot(organoids.combined, reduction = "umap", group.by = "CarterIDs20190802_05_celltypes_long", label = TRUE, label.size = 2, shape.by = "CarterIDs20190802_05_celltypes", repel = TRUE)
+
+#Warning messages:
+#1: The shape palette can deal with a maximum of 6
+#discrete values because more than 6 becomes difficult
+#to discriminate; you have 15. Consider specifying
+#shapes manually if you must have them. 
+#2: Removed 1394 rows containing missing values (geom_point).
 
 
+ p12<-DimPlot(organoids.combined, reduction = "umap", group.by = "CarterIDs20190802_05_celltypes", label = TRUE, label.size = 1.5, shape.by = "CarterIDs20190802_05_celltypes_long")
+#Nice plot, decompressing similar cell types in carter in separate plots
+nlevels(celltypez)
+
+
+#p14<-DimPlot(organoids.combined, reduction = "umap", group.by = "CarterIDs20190802_05_celltypes", label = TRUE, label.size = 1.5, do.return = TRUE)
+
+
+
+
+
+
+#One fix will be to examine facet plots! This might be very nice!
+
+#p10 + geom_jitter(aes(color=CarterIDs20190802_05_celltypes), size = 2, show.legend = FAL~SE) + facet_wrap(~CarterIDs20190802_05_celltypes)
+
+#Revisit this
+
+```
 
 
 
@@ -95,9 +203,324 @@ top50_negative <- negative_markers %>% group_by(cluster) %>% top_n(n = 50, wt = 
  
 top100_markers <- rbind(top50_negative, top50_positive)
 
-scID_outputCarterNayler2 <- scid_multiclass(target_gem = target_gem, reference_gem = Carter_gem, reference_clusters = reference_clusters, markers = top100_markers, estimate_weights_from_target = FALSE)
+scID_outputCarterNayler3 <- scid_multiclass(target_gem = target_gem3, reference_gem = Carter_gem, reference_clusters = reference_clusters, markers = top100_markers, estimate_weights_from_target = TRUE)
 ```
 
+```{r better way to pull out gems}
+ExportToCellbrowser(carter_sct, "wd", dataset.name = "20190807Carter_SCT",reductions = "umap", markers.file = NULL, cluster.field = "Cluster", cb.dir = NULL, port = NULL, skip.expr.matrix = FALSE, skip.metadata = FALSE, skip.reductions = FALSE)
+
+carter_sct_gem<-read.table("~/Desktop/0190807_carter_sct_exprmatrix/exprMatrix.tsv.gz", header = T)
+#stopped here 0807, still need to process the SCT data 
+
+```
+
+
+```{r try new gem extraction for running SCT data in scID}
+#Read in reference clusters from carter
+reference_clusters <- readRDS(file="~/Desktop/Example_data/scIDCarter/Final/20190709CartRefClusCharPopsManFAC.rds")
+
+#getExpr must be outdated
+#I could try the following
+newgmatrsct<-as.matrix(GetAssayData(newganoids.combined))
+head(newgmatrsct)
+humangenes<-as.character(rownames(newgmatrsct))
+#WILL NEED TO CONVERT TO MOUSE
+dim(newgmatrsct)
+ dim(newgmatrsct)
+ # 17176  1653
+mart1 = useMart(biomart = "ENSEMBL_MART_ENSEMBL", host="www.ensembl.org", path = "/biomart/martservice", dataset="hsapiens_gene_ensembl")
+mart2 = useMart(biomart = "ENSEMBL_MART_ENSEMBL", host="www.ensembl.org", path = "/biomart/martservice", dataset="mmusculus_gene_ensembl")
+
+newganoids_sct_asmouse <-getLDS(attributes=c("hgnc_symbol"),
+       filters="hgnc_symbol", values=humangenes, mart=mart1,
+       attributesL=c("mgi_symbol"), martL=mart2, filtersL = "with_hsapiens_homolog", valuesL = T)
+
+head(newganoids_sct_asmouse)
+#  HGNC.symbol MGI.symbol
+#1      ZNF772       Zfy1
+#2       LMCD1      Lmcd1
+#3        PCNT       Pcnt
+#4       KIF24      Kif24
+#5      MT-CO2     mt-Co2
+#6      FLVCR2     Flvcr2
+dim(newganoids_sct_asmouse)
+#13782     2
+
+w<-as.data.frame(newgmatrsct)
+dim(w)
+w2 <- cbind(genes = rownames(w), w)
+dim(w2)
+
+
+newganoids_sct_asmouse2<-merge(newganoids_sct_asmouse, w2, by.x="HGNC.symbol", by.y="genes")
+
+
+head(newganoids_sct_asmouse2)
+dim(newganoids_sct_asmouse2)
+colnames(newganoids_sct_asmouse2)
+rownames(newganoids_sct_asmouse2)
+
+newganoids_sct_asmouse3<-newganoids_sct_asmouse2[,-1]
+rownames(newganoids_sct_asmouse3) = make.unique(newganoids_sct_asmouse3[, 1])
+newganoids_sct_asmouse4<-newganoids_sct_asmouse3[,-1]
+
+
+
+#At the same time I do this I should consider trying a pearson correlation with all genes?
+
+cartermatr_sct<-as.matrix(GetAssayData(carter_sct))
+
+
+
+
+
+scID_outputCarterNayler_sct0815<- scid_multiclass(target_gem = newganoids_sct_asmouse4, reference_gem = cartermatr_sct, reference_clusters = reference_clusters, logFC = 0.3, only_pos = FALSE, estimate_weights_from_target = TRUE,normalize_reference=FALSE)
+
+
+
+table(scID_outputCarterNayler_sct0815$labels)
+(table(scID_outputCarterNayler_sct0815$markers$cluster))
+length(scID_outputCarterNayler_sct0815$markers$labels)
+
+
+scID_outputCarterNayler_sct0815hm<-make_heatmap(gem = cartermatr_sct, labels = reference_clusters, markers = scID_outputCarterNayler_sct0815$markers)
+
+scID_outputCarterNayler_sct0815hm2<-make_heatmap(gem = newganoids_sct_asmouse4, labels = scID_outputCarterNayler_sct0815$labels, markers = scID_outputCarterNayler_sct0815$markers)
+
+
+
+markers = scID_outputCarterNayler_sct0815$markers
+
+write.csv (scID_outputCarterNayler_sct0815$labels, file = "~/Desktop/Example_data/scIDCarter/SCT/20190815.csv")
+write.csv (scID_outputCarterNayler_sct0815$markers, file = "~/Desktop/Example_data/scIDCarter/SCT/20190815_markers.csv")
+
+
+
+newganoids.combined@meta.data$CarterIDs20190815_sct <- scID_outputCarterNayler_sct0815$labels
+p1 <-DimPlot(newganoids.combined, reduction = "umap", group.by = "CarterIDs20190815_sct")
+p2 <-DimPlot(newganoids.combined, reduction = "umap", label = TRUE)
+p3 <-DimPlot(newganoids.combined, reduction = "umap", label = TRUE, group.by = "CarterIDs20190815_sct")
+plot_grid (p1,p2, p3)
+
+#If I want to look at these in greater detail I need to add metadata columns with VLOOKUP ....p12<-DimPlot(newganoids.combined, reduction = "umap", group.by = "cell_type", label = TRUE, label.size = 1.5)
+
+#shape.by?
+
+
+
+
+#####try restricting markers overnight
+positive_markers <- markers[which(markers$avg_logFC > 0), ]
+top50_positive <- positive_markers %>% group_by(cluster) %>% top_n(n = 50, wt = avg_logFC)
+negative_markers <- markers[which(markers$avg_logFC < 0), ]
+top50_negative <- negative_markers %>% group_by(cluster) %>% top_n(n = 50, wt = avg_logFC)
+ 
+top100_markers <- rbind(top50_negative, top50_positive)
+
+scID_outputCarterNayler_sct0815b<- scid_multiclass(target_gem = newganoids_sct_asmouse4, reference_gem = cartermatr_sct, reference_clusters = reference_clusters, logFC = 0.3, only_pos = FALSE, estimate_weights_from_target = TRUE,normalize_reference=FALSE, markers =top100_markers)
+####stopped here thurs, need to produce output for this and solve plotting issue
+
+table(scID_outputCarterNayler_sct0815b$labels)
+(table(scID_outputCarterNayler_sct0815b$markers$cluster))
+length(scID_outputCarterNayler_sct0815b$markers$labels)
+
+
+scID_outputCarterNayler_sct081b5hm<-make_heatmap(gem = cartermatr_sct, labels = reference_clusters, markers = scID_outputCarterNayler_sct0815b$markers)
+
+scID_outputCarterNayler_sct0815bhm2<-make_heatmap(gem = newganoids_sct_asmouse4, labels = scID_outputCarterNayler_sct0815b$labels, markers = scID_outputCarterNayler_sct0815b$markers)
+#I should examine whether I can modify the axis in ggplot etc
+
+
+markers = scID_outputCarterNayler_sct0815b$markers
+
+write.csv (scID_outputCarterNayler_sct0815b$labels, file = "~/Desktop/Example_data/scIDCarter/SCT/20190815b_markersrest.csv")
+write.csv (scID_outputCarterNayler_sct0815b$markers, file = "~/Desktop/Example_data/scIDCarter/SCT/20190815b_markers_markersrest.csv")
+
+
+#lets explore new visualisation strategies that contend with this complexity
+newganoids.combined@meta.data$CarterIDs20190815b_sct <- scID_outputCarterNayler_sct0815b$labels
+p1 <-DimPlot(newganoids.combined, reduction = "umap", group.by = "CarterIDs20190815b_sct")
+#p1 is way too messy. If I can come up with a way to add a meta data column that allows me to show one cell type at a time in colour or with highlight this would be advantageous.
+p2 <-DimPlot(newganoids.combined, reduction = "umap", label = TRUE)
+p3 <-DimPlot(newganoids.combined, reduction = "umap", label = TRUE, group.by = "CarterIDs20190815b_sct")
+plot_grid (p1,p2, p3)
+
+
+VlnPlot(newganoids.combined, features ="percent.mt", split.by = "integrated_snn_res.0.8")
+
+
+px <-DimPlot(newganoids.combined, reduction = "umap", group.by = "umaptest")
+#What about an if then for 1, otherwise NA or 0.
+
+#I can also try 
+pzx1 <-DimPlot(newganoids.combined, reduction = "umap", group.by = "CarterIDs20190815b_sct", cols = c('1' = 'red', '2' = 'grey', '3' = 'grey', '4' = 'grey', '5' = 'grey', '6' = 'grey', '7' = 'grey', '8' = 'grey', '9' = 'grey', '10' = 'grey', '11' = 'grey', '12' = 'grey', '13' = 'grey', '14' = 'grey', '15' = 'grey', '16' = 'grey', '17' = 'grey', '18' = 'grey', '19' = 'grey', '20' = 'grey', '21' = 'grey', '22' = 'grey', '23' = 'grey', '24' = 'grey', '25' = 'grey', '26' = 'grey', '27' = 'grey', '28' = 'grey', '29' = 'grey', '30' = 'grey', '31' = 'grey', '32' = 'grey', '33' = 'grey', '34' = 'grey', '35' = 'grey', '36' = 'grey', '37' = 'grey', '38' = 'grey', '39' = 'grey', '40' = 'grey', '41' = 'grey', '42' = 'grey', '43' = 'grey', '44' ='grey','45' = 'grey', '46' = 'grey', '47' = 'grey', '48' ='grey', cells.highlight = '1'))
+celllabel<-as.character(celltypesmega.char.alph[1])
+pzx2<-pzx + labs(title =celllabel)
+One<-plot_grid(pzx2,p2)
+#This is not a bad sollution to my visualisation fix 
+#Try and incorporate a lookup of celltypesmega.char.alph
+#Can I overlay my pops on top of this?!?! Maybe as shapes?
+
+#Useful but not necessary match("1", newganoids.combined@meta.data$CarterIDs20190815b_sct, nomatch = NA_integer_, incomparables = NULL)
+
+
+#I can potentially filter/subset out and shapeby on cell type (as there should be 6 or fewer subdivisions?)
+
+#Run through whole batch, also consider multiple colours to delineate related groups! Or symbols ;~D
+pzx <-DimPlot(newganoids.combined, reduction = "umap", group.by = "CarterIDs20190815b_sct", cols = c('1' = 'grey', '2' = 'grey', '3' = 'grey', '4' = 'grey', '5' = 'grey', '6' = 'grey', '7' = 'grey', '8' = 'grey', '9' = 'grey', '10' = 'grey', '11' = 'grey', '12' = 'grey', '13' = 'grey', '14' = 'grey', '15' = 'grey', '16' = 'grey', '17' = 'grey', '18' = 'grey', '19' = 'grey', '20' = 'grey', '21' = 'grey', '22' = 'grey', '23' = 'grey', '24' = 'grey', '25' = 'grey', '26' = 'grey', '27' = 'grey', '28' = 'grey', '29' = 'grey', '30' = 'grey', '31' = 'grey', '32' = 'grey', '33' = 'grey', '34' = 'grey', '35' = 'grey', '36' = 'grey', '37' = 'grey', '38' = 'grey', '39' = 'grey', '40' = 'grey', '41' = 'grey', '42' = 'grey', '43' = 'grey', '44' ='grey','45' = 'grey', '46' = 'grey', '47' = 'grey', '48' ='red', cells.highlight = NULL))
+celllabel<-as.character(celltypesmega.char.alph[48])
+pzx<-pzx + labs(title =celllabel)
+pzxplot<-plot_grid(pzx,p2)
+pzxplot
+
+####look at markers from LDA/SCID on SCT/restricted markers in heatmap
+DefaultAssay(newganoids.combined) <- 'integrated'
+
+
+scidLDAhm0919<-DoHeatmap(newganoids.combined, features = markers$gene, cells = 1:1653, group.by = "integrated_snn_res.0.8",
+  group.bar = TRUE, disp.min = -2.5, disp.max = NULL,
+  slot = "scale.data", assay = NULL, label = TRUE, size = 5.5,
+  hjust = 0, angle = 45, raster = TRUE, draw.lines = TRUE,
+  lines.width = NULL, group.bar.height = 0.02, combine = TRUE)
+####
+
+#Try and visualize related clusters simultaneously
+#Astrocytes
+grep("Astrocyte", celltypesmega.char.alph)
+
+
+pzy <-DimPlot(newganoids.combined, reduction = "umap", group.by = "CarterIDs20190815b_sct", cols = c('1' = 'grey', '2' = 'grey', '3' = 'grey', '4' = 'grey', '5' = 'grey', '6' = 'grey', '7' = 'grey', '8' = 'grey', '9' = 'grey', '10' = 'grey', '11' = 'grey', '12' = 'grey', '13' = 'grey', '14' = 'grey', '15' = 'grey', '16' = 'grey', '17' = 'grey', '18' = 'grey', '19' = 'grey', '20' = 'grey', '21' = 'grey', '22' = 'grey', '23' = 'grey', '24' = 'grey', '25' = 'green', '26' = 'grey', '27' = 'grey', '28' = 'grey', '29' = 'blue', '30' = 'grey', '31' = 'orange', '32' = 'grey', '33' = 'grey', '34' = 'grey', '35' = 'grey', '36' = 'grey', '37' = 'grey', '38' = 'grey', '39' = 'grey', '40' = 'grey', '41' = 'grey', '42' = 'grey', '43' = 'grey', '44' ='grey','45' = 'grey', '46' = 'grey', '47' = 'grey', '48' ='grey', cells.highlight = NULL))
+celllabel<-c(as.character(celltypesmega.char.alph[19]),as.character(celltypesmega.char.alph[25]), as.character(celltypesmega.char.alph[29]), as.character(celltypesmega.char.alph[31]))
+celllabel2<-paste(celllabel, collapse = '')
+
+pzy<-pzy + labs(title =celllabel2)
+pzyplot<-plot_grid(pzy,p2)
+pzyplot
+
+
+pzyvasc <-DimPlot(newganoids.combined, reduction = "umap", group.by = "CarterIDs20190815b_sct", cols = c('1' = 'grey', '2' = 'grey', '3' = 'grey', '4' = 'grey', '5' = 'grey', '6' = 'grey', '7' = 'grey', '8' = 'grey', '9' = 'grey', '10' = 'grey', '11' = 'grey', '12' = 'grey', '13' = 'grey', '14' = 'red', '15' = 'grey', '16' = 'grey', '17' = 'grey', '18' = 'grey', '19' = 'grey', '20' = 'grey', '21' = 'grey', '22' = 'grey', '23' = 'grey', '24' = 'grey', '25' = 'grey', '26' = 'grey', '27' = 'grey', '28' = 'grey', '29' = 'grey', '30' = 'grey', '31' = 'grey', '32' = 'grey', '33' = 'orange', '34' = 'grey', '35' = 'grey', '36' = 'grey', '37' = 'grey', '38' = 'grey', '39' = 'grey', '40' = 'grey', '41' = 'grey', '42' = 'yellow', '43' = 'green', '44' ='grey','45' = 'blue', '46' = 'grey', '47' = 'violet', '48' ='brown', cells.highlight = NULL))
+celllabel<- "Vasculature (014-Roof_plate-E10E11E12E13 , 033-Erythrocyte-E14E15E16E17P0P4P7P10, 042-Blood_vessel-E10E11E12E13E14E15E16E17P0P4P7P10, 043-Erythrocyte-E10E11E12E13E14E15, 045-Blood_vessel-E10E11E12E13E14E15E16E17P0P4P7P10, 046-Meninges/Pia_membrane-E11E12E13E14E15E16E17P0P4P7P10, 047-Ciliated_cells-E16E17P0P4P7P10, 048-Erythrocyte-E13E14E15E16E17P0P4P10"
+
+pzyvasc<-pzyvasc + labs(title =celllabel)
+pzyvascplot<-plot_grid(pzyvasc,p2)
+pzyvascplot
+
+#############
+#Here I want to try and look simulatenously at the GABAergic progenitors and the DCN. Is it strange that Carter did not identify any GABAergic DCN?
+
+
+
+
+####stopped here MOnday 08/19. Should work through remaning cells and also explor symbols etc
+
+#####Now for further cells types with new colours
+
+library("RColorBrewer")
+display.brewer.all()
+brewer.pal(n = 11, name = "RdBu")
+
+
+
+pzyprog <-DimPlot(newganoids.combined, reduction = "umap", group.by = "CarterIDs20190815b_sct", cols = c('1' = 'grey', '2' = 'grey', '3' = '#FFC00', '4' = 'grey', '5' = 'grey', '6' = "#B2182B", '7' = 'grey', '8' = 'green', '9' = 'grey', '10' = 'grey', '11' = 'grey', '12' = 'grey', '13' = 'grey', '14' = 'grey', '15' = 'grey', '16' = '#F4A582', '17' = '#D1E5F0', '18' = '#FDDBC7', '19' = 'grey', '20' = '#92C5DE', '21' = 'grey', '22' = 'grey', '23' = 'grey', '24' = 'grey', '25' = 'grey', '26' = 'grey', '27' = 'grey', '28' = 'grey', '29' = 'grey', '30' = '#4393C3', '31' = 'grey', '32' = 'grey', '33' = 'grey', '34' = 'grey', '35' = 'grey', '36' = '#2166AC', '37' = 'grey', '38' = 'blue', '39' = 'grey', '40' = 'grey', '41' = 'grey', '42' = 'grey', '43' = 'grey', '44' ='grey','45' = 'grey', '46' = 'grey', '47' = 'grey', '48' ='grey', cells.highlight = NULL))
+celllabel<- "Progenitors"
+
+pzyprog<-pzyprog + labs(title =celllabel)
+pzyprogplot<-plot_grid(pzyprog,p2)
+pzyprogplot
+
+grep("Granule", celltypesmega.char.alph)
+ #[1]  2  4  7  9 10 11 13 21 22 26 32 37
+
+pzygran <-DimPlot(newganoids.combined, reduction = "umap", group.by = "CarterIDs20190815b_sct", cols = c('1' = 'grey', '2' = "#B2182B", '3' = 'grey', '4' = "#67001F", '5' = 'grey', '6' = 'grey', '7' = "#D6604D", '8' = 'grey', '9' = "#F4A582", '10' = "#FDDBC7", '11' = 'orange', '12' = 'grey', '13' = "#D1E5F0", '14' = 'grey', '15' = 'grey', '16' = 'grey', '17' = 'grey', '18' = 'grey', '19' = 'grey', '20' = 'grey', '21' = "#92C5DE", '22' = "#4393C3", '23' = 'grey', '24' = 'grey', '25' = 'grey', '26' = "#2166AC", '27' = 'grey', '28' = 'grey', '29' = 'grey', '30' = 'grey', '31' = 'grey', '32' = "#053061", '33' = 'grey', '34' = 'grey', '35' = 'grey', '36' = 'grey', '37' = "red", '38' = 'grey', '39' = 'grey', '40' = 'grey', '41' = 'grey', '42' = 'grey', '43' = 'grey', '44' ='grey','45' = 'grey', '46' = 'grey', '47' = 'grey', '48' ='grey', cells.highlight = NULL))
+celllabel<- "Granule cells"
+
+pzygran<-pzygran + labs(title =celllabel)
+pzygranplot<-plot_grid(pzygran,p2)
+pzygranplot
+
+
+####
+grep("Glutamatergic", celltypesmega.char.alph)
+#5 23 39
+
+pzyglutdcn <-DimPlot(newganoids.combined, reduction = "umap", group.by = "CarterIDs20190815b_sct", cols = c('1' = 'grey', '2' = 'grey', '3' = 'grey', '4' = 'grey', '5' = 'red', '6' = 'grey', '7' = 'grey', '8' = 'grey', '9' = 'grey', '10' = 'grey', '11' = 'grey', '12' = 'grey', '13' = 'grey', '14' = 'grey', '15' = 'grey', '16' = 'grey', '17' = 'grey', '18' = 'grey', '19' = 'grey', '20' = 'grey', '21' = 'grey', '22' = 'grey', '23' = 'green', '24' = 'grey', '25' = 'grey', '26' = 'grey', '27' = 'grey', '28' = 'grey', '29' = 'grey', '30' = 'grey', '31' = 'grey', '32' = 'grey', '33' = 'grey', '34' = 'grey', '35' = 'grey', '36' = 'grey', '37' = "grey", '38' = 'grey', '39' = 'blue', '40' = 'grey', '41' = 'grey', '42' = 'grey', '43' = 'grey', '44' ='grey','45' = 'grey', '46' = 'grey', '47' = 'grey', '48' ='grey', cells.highlight = NULL))
+celllabel<- "Glutamatergic DCN"
+
+pzyglutdcn<-pzyglutdcn + labs(title =celllabel)
+pzyglutdcnplot<-plot_grid(pzyglutdcn,p2)
+pzyglutdcnplot
+
+############
+grep("GABA", celltypesmega.char.alph)
+# 1 15 27 28 34 40
+
+pzyGABA <-DimPlot(newganoids.combined, reduction = "umap", group.by = "CarterIDs20190815b_sct", cols = c('1' = 'red', '2' = 'grey', '3' = 'grey', '4' = 'grey', '5' = 'grey', '6' = 'grey', '7' = 'grey', '8' = 'grey', '9' = 'grey', '10' = 'grey', '11' = 'grey', '12' = 'grey', '13' = 'grey', '14' = 'grey', '15' = 'orange', '16' = 'grey', '17' = 'grey', '18' = 'grey', '19' = 'grey', '20' = 'grey', '21' = 'grey', '22' = 'grey', '23' = 'grey', '24' = 'grey', '25' = 'grey', '26' = 'grey', '27' = 'yellow', '28' = 'green', '29' = 'grey', '30' = 'grey', '31' = 'grey', '32' = 'grey', '33' = 'grey', '34' = 'blue', '35' = 'grey', '36' = 'grey', '37' = "grey", '38' = 'grey', '39' = 'grey', '40' = 'violet', '41' = 'grey', '42' = 'grey', '43' = 'grey', '44' ='grey','45' = 'grey', '46' = 'grey', '47' = 'grey', '48' ='grey', cells.highlight = NULL))
+celllabel<- "GABAergic"
+
+pzyGABA<-pzyGABA + labs(title =celllabel)
+pzyGABAplot<-plot_grid(pzyGABA,p2)
+pzyGABAplot
+
+#######
+#I should try and look at GABA and glut to check the localisation to my DCN/RL cluster - for this I will need to look at shades of colours...and or shapes
+
+
+
+grep("Glutamatergic", celltypesmega.char.alph)
+#5 23 39
+grep("GABA", celltypesmega.char.alph)
+# 1 15 27 28 34 40
+
+pzyglutdcnandGABAprog <-DimPlot(newganoids.combined, reduction = "umap", group.by = "CarterIDs20190815b_sct", cols = c('1' = 'blue', '2' = 'grey', '3' = 'grey', '4' = 'grey', '5' = 'red', '6' = 'grey', '7' = 'grey', '8' = 'grey', '9' = 'grey', '10' = 'grey', '11' = 'grey', '12' = 'grey', '13' = 'grey', '14' = 'grey', '15' = 'blue', '16' = 'grey', '17' = 'grey', '18' = 'grey', '19' = 'grey', '20' = 'grey', '21' = 'grey', '22' = 'grey', '23' = 'red', '24' = 'grey', '25' = 'grey', '26' = 'grey', '27' = 'blue', '28' = 'blue', '29' = 'grey', '30' = 'grey', '31' = 'grey', '32' = 'grey', '33' = 'grey', '34' = 'blue', '35' = 'grey', '36' = 'grey', '37' = "grey", '38' = 'grey', '39' = 'red', '40' = 'blue', '41' = 'grey', '42' = 'grey', '43' = 'grey', '44' ='grey','45' = 'grey', '46' = 'grey', '47' = 'grey', '48' ='grey', cells.highlight = NULL))
+
+
+celllabel<- "Glut DCN (red) and GABAergic prog (blue)"
+
+pzyglutdcnandGABAprog<-pzyglutdcnandGABAprog + labs(title =celllabel)
+pzyglutdcnandGABAprogplot<-plot_grid(pzyglutdcnandGABAprog,p2)
+pzyglutdcnandGABAprogplot
+#What else is localizing this the supposed Glutamatergic DCN/GCP/RLP cluster 
+
+
+###
+grep("GABA", celltypesmega.char.alph)
+# 1 15 27 28 34 40
+#PCS are 12
+pzyPurkdcnandGABAprog <-DimPlot(newganoids.combined, reduction = "umap", group.by = "CarterIDs20190815b_sct", cols = c('1' = 'blue', '2' = 'grey', '3' = 'grey', '4' = 'grey', '5' = 'grey', '6' = 'grey', '7' = 'grey', '8' = 'grey', '9' = 'grey', '10' = 'grey', '11' = 'grey', '12' = 'purple', '13' = 'grey', '14' = 'grey', '15' = 'blue', '16' = 'grey', '17' = 'grey', '18' = 'grey', '19' = 'grey', '20' = 'grey', '21' = 'grey', '22' = 'grey', '23' = 'grey', '24' = 'grey', '25' = 'grey', '26' = 'grey', '27' = 'blue', '28' = 'blue', '29' = 'grey', '30' = 'grey', '31' = 'grey', '32' = 'grey', '33' = 'grey', '34' = 'blue', '35' = 'grey', '36' = 'grey', '37' = "grey", '38' = 'grey', '39' = 'grey', '40' = 'blue', '41' = 'grey', '42' = 'grey', '43' = 'grey', '44' ='grey','45' = 'grey', '46' = 'grey', '47' = 'grey', '48' ='grey', cells.highlight = NULL))
+
+
+celllabel<- "Purkinje (purple) and GABAergic prog (blue)"
+
+pzyPurkdcnandGABAprog<-pzyPurkdcnandGABAprog + labs(title =celllabel)
+pzyPurkdcnandGABAprogplot<-plot_grid(pzyPurkdcnandGABAprog,p2)
+pzyPurkdcnandGABAprogplot
+
+
+#I need to plot via cell type grossly - perhaps here is where I can experiment with shape.by and color by
+
+#######
+pzyCilaCvsN <-DimPlot(newganoids.combined, reduction = "umap", group.by = "CarterIDs20190815b_sct", cols = c('1' = 'grey', '2' = 'grey', '3' = 'grey', '4' = 'grey', '5' = 'grey', '6' = 'grey', '7' = 'grey', '8' = 'grey', '9' = 'grey', '10' = 'grey', '11' = 'grey', '12' = 'grey', '13' = 'grey', '14' = 'grey', '15' = 'grey', '16' = 'grey', '17' = 'grey', '18' = 'grey', '19' = 'grey', '20' = 'grey', '21' = 'grey', '22' = 'grey', '23' = 'grey', '24' = 'grey', '25' = 'grey', '26' = 'grey', '27' = 'grey', '28' = 'grey', '29' = 'grey', '30' = 'grey', '31' = 'grey', '32' = 'grey', '33' = 'grey', '34' = 'grey', '35' = 'grey', '36' = 'grey', '37' = "grey", '38' = 'grey', '39' = 'grey', '40' = 'grey', '41' = 'grey', '42' = 'grey', '43' = 'grey', '44' ='grey','45' = 'grey', '46' = 'grey', '47' = 'red', '48' ='grey', cells.highlight = NULL), shape.by = 'integrated_snn_res.0.8')
+celllabel<- "Nayler (ciliated ependymal cells) vs Carter ciliated cells"
+
+pzyCilaCvsN<-pzyCilaCvsN + labs(title =celllabel)
+pzyCilaCvsNplot<-plot_grid(pzyCilaCvsN,p2)
+pzyCilaCvsNplot
+
+
+
+#Try and get manual shaping
+
+pzyCilaCvsN <-DimPlot(newganoids.combined, reduction = "umap", group.by = "CarterIDs20190815b_sct", cols = c('1' = 'grey', '2' = 'grey', '3' = 'grey', '4' = 'grey', '5' = 'grey', '6' = 'grey', '7' = 'grey', '8' = 'grey', '9' = 'grey', '10' = 'grey', '11' = 'grey', '12' = 'grey', '13' = 'grey', '14' = 'grey', '15' = 'grey', '16' = 'grey', '17' = 'grey', '18' = 'grey', '19' = 'grey', '20' = 'grey', '21' = 'grey', '22' = 'grey', '23' = 'grey', '24' = 'grey', '25' = 'grey', '26' = 'grey', '27' = 'grey', '28' = 'grey', '29' = 'grey', '30' = 'grey', '31' = 'grey', '32' = 'grey', '33' = 'grey', '34' = 'grey', '35' = 'grey', '36' = 'grey', '37' = "grey", '38' = 'grey', '39' = 'grey', '40' = 'grey', '41' = 'grey', '42' = 'grey', '43' = 'grey', '44' ='grey','45' = 'grey', '46' = 'grey', '47' = 'red', '48' ='grey', cells.highlight = NULL), shape.by = 'integrated_snn_res.0.8')
+
+
+
+
+
+
+#### all the greys are grey
+cols = c('1' = 'grey', '2' = 'grey', '3' = 'grey', '4' = 'grey', '5' = 'grey', '6' = 'grey', '7' = 'grey', '8' = 'grey', '9' = 'grey', '10' = 'grey', '11' = 'grey', '12' = 'grey', '13' = 'grey', '14' = 'grey', '15' = 'grey', '16' = 'grey', '17' = 'grey', '18' = 'grey', '19' = 'grey', '20' = 'grey', '21' = 'grey', '22' = 'grey', '23' = 'grey', '24' = 'grey', '25' = 'grey', '26' = 'grey', '27' = 'grey', '28' = 'grey', '29' = 'grey', '30' = 'grey', '31' = 'grey', '32' = 'grey', '33' = 'grey', '34' = 'grey', '35' = 'grey', '36' = 'grey', '37' = "grey", '38' = 'grey', '39' = 'grey', '40' = 'grey', '41' = 'grey', '42' = 'grey', '43' = 'grey', '44' ='grey','45' = 'grey', '46' = 'grey', '47' = 'grey', '48' ='grey', cells.highlight = NULL))
+
+```
 #Need to think up a better way to visualize/enumerate the clusters on a background!
 #Would be nice to run on cluster as quite computationally intensive
 #Would be nice to know what the genes contributing to the marker signatures are rather than x20340

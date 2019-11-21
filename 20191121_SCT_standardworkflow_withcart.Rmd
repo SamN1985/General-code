@@ -1,0 +1,204 @@
+---
+title: "20191031_Nayler_Carter_Integration_v1"
+author: "Sam N"
+date: "31/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#Here I will attempt to follow the vignette at https://satijalab.org/seurat/v3.1/integration.html  INTEGRATION
+#I will probably start using the mouseganoids object which is newganoids combined with mouse probes, which is being used for scMAP
+
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(Seurat)
+library(devtools)
+library(Matrix)
+library(cowplot)
+library(clustree)
+library(ggplot2)
+library(plotly)
+devtools::install_github('satijalab/seurat-data')
+sessionInfo()
+```
+
+
+
+#On the previous tab, we demonstrate how to integrate datasets after each has been pre-processed using standard log-normalization. Here, we modify the workflow to take advantage of our improved pre-processing and normalization workflow: SCTransform. You can read more about SCTransform in our recent preprint, and see how to apply it to a single dataset in a separate vignette. We suggest exploring these resources before proceeding.
+
+#Conceptually, this workflow is very similar to what we have previously introduced, where we ‘correct’ (or harmonize) log-normalized expression values across datasets. Here, instead, we will harmonize the Pearson residuals that are output from SCTransform. As demonstrated below, the workflow consists of the following steps:
+
+#Create a list of Seurat objects to integrate
+#Perform SCTransform normalization separately for each dataset
+#Run the PrepSCTIntegration function on the object list
+#Integrate datasets, and proceed with joint analysis
+#First, setup the Seurat object list, and run SCTransform on each object separately:
+
+
+#options(future.globals.maxSize = 4000 * 1024^2)
+#InstallData("panc8")
+#data("panc8")
+#pancreas.list <- SplitObject(panc8, split.by = "tech")
+#pancreas.list <- pancreas.list[c("celseq", "celseq2", "fluidigmc1", "smartseq2")]
+#for (i in 1:length(pancreas.list)) {
+#    pancreas.list[[i]] <- SCTransform(pancreas.list[[i]], verbose = #FALSE)
+#}
+#Next, select features for downstream integration, and run PrepSCTIntegration, which ensures that all necessary Pearson residuals have been calculated.
+
+#pancreas.features <- SelectIntegrationFeatures(object.list = pancreas.list, nfeatures = 3000)
+#pancreas.list <- PrepSCTIntegration(object.list = pancreas.list, anchor.features = pancreas.features, 
+#    verbose = FALSE)
+#Next, identify anchors and integrate the datasets. Commands are identical to the standard workflow, but make sure to set normalization.method = 'SCT':
+
+#pancreas.anchors <- FindIntegrationAnchors(object.list = #pancreas.list, normalization.method = "SCT", 
+#    anchor.features = pancreas.features, verbose = FALSE)
+#pancreas.integrated <- IntegrateData(anchorset = pancreas.anchors, #normalization.method = "SCT", 
+#    verbose = FALSE)
+#Now proceed with downstream analysis (i.e. visualization, clustering) on the integrated dataset. Commands are identical to the standard workflow, but do not run the ScaleData function after integration. You can see that after integration, cells group by their biological cell type (which has been pre-annotated), instead of by their underlying technology.
+
+#pancreas.integrated <- RunPCA(pancreas.integrated, verbose = FALSE)
+#pancreas.integrated <- RunUMAP(pancreas.integrated, dims = 1:30)
+#plots <- DimPlot(pancreas.integrated, group.by = c("tech", "celltype"), combine = FALSE)
+#plots <- lapply(X = plots, FUN = function(x) x + theme(legend.position = "top") + guides(color = guide_legend(nrow = 3, byrow = TRUE, override.aes = list(size = 3))))
+#CombinePlots(plots)
+
+##############
+#Let's try and merge carter and organoids. If I can only merge two objects, I probably need to merge stim and control and then carter.
+#pbmc.combined <- merge(pbmc4k, y = pbmc8k, add.cell.ids = c("4K", "8K"), project = "PBMC12K")
+#oldganoids_ctrl<-readRDS("/Users/samnayler/Desktop/bsg-ftp.well.ox.ac.uk/additional_analyses/10x-hashing/NAY6153A2/hashing.sng/seurat.rds")
+#oldganoids_stim<-readRDS("/Users/samnayler/Desktop/bsg-ftp.well.ox.ac.uk/additional_analyses/10x-hashing/NAY6153A1/hashing.sng/seurat.rds")
+
+#12112019
+
+
+cartert_sct2<-SCTransform(carter_sct)
+Idents(cartert_sct2) <-'cluster_id'
+#With the above i want to come back and look at clusters by id, not cell type
+
+#Has this already been processed and will this cause problems? I can see that SCT kicks off using 2000 genes which is a warning sign perhaps. If I started with importing carterunnorm this might be worth comparing. 
+mouseganoids_sct<-SCTransform(mouseganoids)
+
+mouseganoids_sct<-RenameIdents(mouseganoids_sct, `0` = "Choroid plexus-N", `1` = "Glutamatergic DCN-N",`2` = "Vascularised roof plate-N", `3` = "Bergmann Glia-N",`4` = "Granule cells S-phase-N",`5` = "Granule cell precursors-N",`6` = "Purkinje neurons-N",`7` = "Roof plate-N",`8` = "Granule cells G2M-N",`9` = "Rhombic lip precursors-N",`10` = "Unknown-N",`11` =  "Ciliated cells-N")
+
+cerebellar.features <- SelectIntegrationFeatures(object.list = list(mouseganoids_sct, cartert_sct2), nfeatures = 3000)
+#cerebellar.list <- PrepSCTIntegration(object.list = list(mouseganoids_sct, cartert_sct2), anchor.features = cerebellar.features, verbose = FALSE)
+#This currently errors, see https://satijalab.org/seurat/v3.0/future_vignette.html
+#Error in getGlobalsAndPackages(expr, envir = envir, globals = globals) : 
+#The total size of the 6 globals that need to be exported for the future expression (‘FUN()’) is 6.06 GiB. This exceeds the maximum allowed size of 500.00 MiB (option 'future.globals.maxSize'). The three largest globals are ‘object.list’ (6.06 GiB of class ‘list’), ‘anchor.features’ (188.57 KiB of class ‘character’) and ‘FUN’ (51.71 KiB of class ‘function’).    
+
+cartermouseganoids.anchors<-FindIntegrationAnchors(object.list = list(mouseganoids_sct, cartert_sct2), dims = 1:20)
+#Need to check what level of processing should be done prior to this
+
+cartermouseganoid.integrated2 <- IntegrateData(anchorset = cartermouseganoids.anchors, normalization.method = "SCT", verbose = FALSE)
+#Now proceed with downstream analysis (i.e. visualization, clustering) on the integrated dataset. Commands are identical to the standard workflow, but do not run the ScaleData function after integration. You can see that after integration, cells group by their biological cell type (which has been pre-annotated), instead of by their underlying technology.
+
+#I need to try and pull the metadata from another column such as newganoids.combined
+#head(newganoids.combined@meta.data$integrated_snn_res.0.8)
+
+nc.int_snn_res0.8<-newganoids.combined@meta.data$integrated_snn_res.0.8
+mouseganoids_sct$newgident<-nc.int_snn_res0.8
+
+mouseganoids_sct<-RenameIdents(mouseganoids_sct, `0` = "Choroid plexus-N", `1` = "Glutamatergic DCN-N",`2` = "Vascularised roof plate-N", `3` = "Bergmann Glia-N",`4` = "Granule cells S-phase-N",`5` = "Granule cell precursors-N",`6` = "Purkinje neurons-N",`7` = "Roof plate-N",`8` = "Granule cells G2M-N",`9` = "Rhombic lip precursors-N",`10` = "Unknown-N",`11` =  "Ciliated cells-N")
+
+p3<-DimPlot(mouseganoids_sct, label = TRUE)
+#no group.by here will default to cell type names which is what I want
+#Idents(mouseganoids_sct) <-'newgident'
+#I can use the above to switch the population annotation by number from previous UMAP clustering on the whole human object
+
+#Note, after plotting mouseganoids I have a different UMAP plotting, is this because of random.seed or is this because I have used (fewer) genes to cluster after orthologue conversion?
+#The most important thing here after I have applied metadata from the previous clusterings is that some of the glutamatergic DCN are misclassified, and I see this come through on the carter comparison
+
+cartermouseganoid.integrated2 <- RunPCA(cartermouseganoid.integrated2, verbose = FALSE)
+cartermouseganoid.integrated2 <- RunUMAP(cartermouseganoid.integrated2, dims = 1:30)
+
+
+saveRDS(mouseganoids_sct, file ="~/Desktop/20191113vs2_v3update__mouseganoids_sct2.rds")
+saveRDS(cartert_sct2, file ="~/Desktop/20191113vs2_v3update__carter_sct2.rds")
+
+saveRDS(cartermouseganoid.integrated, file ="~/Desktop/20191113vs2_v3update__mouseganoids_sct2_integrated_bypop.rds")
+saveRDS(cartermouseganoid.integrated2, file ="~/Desktop/20191113vs2_v3update__mouseganoids_sct2_integrated_byclusterid.rds")
+
+
+
+#plots <- DimPlot(cartermouseganoid.integrated, group.by = c("tech", "celltype"), combine = FALSE)
+plots <- DimPlot(cartermouseganoid.integrated2, combine = FALSE, label = TRUE)
+
+
+
+plots <- lapply(X = plots, FUN = function(x) x + theme(legend.position = "top") + guides(color = guide_legend(nrow = 3, 
+    byrow = TRUE, override.aes = list(size = 3))))
+CombinePlots(plots)
+
+##########play and plot
+
+ggplotly(p = ggplot2::last_plot(), width = NULL, height = NULL,
+  tooltip = "all", dynamicTicks = FALSE, layerData = 1,
+  originalData = TRUE, source = "A", ...)
+
+
+#need ggplotly/plotly to work!  
+#Error in value[[3L]](cond) : 
+#Package ‘plotly’ version 4.9.0 cannot be unloaded:
+#Error in unloadNamespace(package) : namespace ‘plotly’ is imported by ‘Seurat’ so #cannot be unloaded
+
+#Why can I only see 9 of my populations from mouseganoids? Also I should try this at population level mapping. Because I only have 9! 
+
+p2<-DimPlot(mouseganoids_sct, label = TRUE)
+#trythis p2<-DimPlot(mouseganoids_sct, label = TRUE, colors = c('#000000', '#FF0000', '#FFA500', '#008000', '#00FF00', '#0000FF', '#FFFF00', '#00FFFF', '#FF00FF', '#800000', '#808000','#800080')
+
+
+#Let's try actually renaming by cell type
+
+
+###### maybe need this
+##should try splitting by time and by pop
+
+#colors = c('#000000', '#FF0000', '#FFA500', '#008000', '#00FF00', '#0000FF', '#FFFF00', '#00FFFF', '#FF00FF', '#800000', '#808000','#800080','#008080', '#000080', '#FFFFFF'
+
+#should look for 11 for hash tag colours 
+
+# should also trym but may also involve reintegration 
+#
+pdf("~/Desktop/umapcarter.pdf", height =5000 ,width = 3500) 
+plots2 <- DimPlot(cartermouseganoid.integrated2, combine = FALSE, label = TRUE, split.by = 'cell_type')
+plots2
+dev.off()
+
+
+pdf("~/Desktop/mapcarter2.pdf", height = 20,  width = 14) 
+plots <- DimPlot(cartermouseganoid.integrated, combine = FALSE, label = TRUE, repel = TRUE)
+plots
+dev.off()
+#These work
+#need to get pdfs working for some of the larger figures
+
+
+plots3 <- DimPlot(cartermouseganoid.integrated2, combine = FALSE, label = TRUE, group.by = 'cell_type')
+
+#colz27<-cm.colors(27)#these are all really samey
+
+library(RColorBrewer)
+n <- 27
+qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+pie(rep(1,n), col=sample(col_vector, n))
+pdf("~/Desktop/mapcarter3.pdf", height = 20,  width = 14) 
+plots3 <- DimPlot(cartermouseganoid.integrated, combine = FALSE, label = TRUE, repel = TRUE, cols = disco)
+plots3
+dev.off()
+
+pdf("~/Desktop/cols.pdf", height = 20,  width = 14) 
+cols<-display.brewer.all(n = NULL, type = "all", select = NULL,
+                   colorblindFriendly = FALSE)
+
+#install.packages("randomcoloR")
+#library(randomcoloR)
+
+disco<-distinctColorPalette(k = 27, altCol = FALSE, runTsne = FALSE)
+
+#These colours are somewhat better but I could still probably do better
+#Also I should examine my scMAP code for plotting grey/red to see if this works for these UMAPS
+
+#I want to take  -the object plots3 and convert it to a plotly interactive/uploadable object - cannot load plotly due to a dependency error. Can I save the object and try it on another terminal? I could try and remote in to cgat to do this or try my desktop
+
+saveRDS(plots3, file ="~/Desktop/201911290vs2_v3update__mouseganoids_sct2vscarterUMAP_nicecols.rds")
