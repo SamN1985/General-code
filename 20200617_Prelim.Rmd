@@ -1,0 +1,1500 @@
+---
+title: "2020_03_27_Disease_seq_prelim"
+author: "Sam N"
+date: "27/03/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+devtools::install_github(repo = "satijalab/seurat", ref = "develop")
+library(dplyr)
+library(Seurat)
+library(devtools)
+library(Matrix)
+library(cowplot)
+library(dplyr)
+library(clustree)
+library(ggplot2)
+library(plotly)
+library(enrichR)
+library(biomaRt)
+library(randomcoloR)
+library(pheatmap)
+library(viridis)
+library(viridisLite)
+library(grid)
+library(reshape2)
+#Here I will examine the new disease cohort (British patients) dataset. I should perform MD5 tests, I should check QCs in raw/singlets including markers to see if small cells have been discarded. I should set up and estalbish sample ID and metadata. Have cohort1 and 2 been folded in together?
+#I will split off from 20200603_Prelim where I looked at multiseq and go back to work on htodemux as there are more cells.
+knitr::opts_chunk$set(echo = TRUE,cache=T,cache.lazy = F)
+```
+
+```{r metadata establishment}
+#British patient cohort (2020_02_03)
+#CD29_Aragorn_Organoids_D90Std_123 - AHO17-3
+#CD29_Aragorn_Organoids_D90MGd21_123 AHO17-3
+#CD32_Aragorn_Organoids_123 AHO17-3
+#CD32_Boromir_Organoids_256 AT1 (c5)
+#CD32_Frodo_Organoids_146 AT210 (c2)
+#CD32_Gandalf_Organoids_123 NI (c8)
+#CD32_Gimli_Organoids_123 AT210 (c3)
+#CD32_Merry_Organoids_136 AT1 (c4)
+
+#CD29_Aragorn_D90_Std_1	BC21	AGCAGTTA
+#CD29_Aragorn_D90_Std_2	BC22	CTTGTACC
+#CD29_Aragorn_D90_Std_3	BC23	GAACCCGG
+#CD29_Aragorn_D90_MGd21_1	BC24	TCGTAGAT
+#CD29_Aragorn_D90_MGd21_2	BC25	ACGCGGAA
+#CD29_Aragorn_D90_MGd21_3	BC26	CGCTATCC
+#CD32_Aragorn_D60_1	BC27	GTTGCATG
+#CD32_Aragorn_D60_2	BC28	TAAATCGT
+#CD32_Aragorn_D60_3	BC29	ATCGCCAT
+#CD32_Boromir_D60_2	BC30	CATAAAGG
+#CD32_Boromir_D60_5	BC31	TCACGGTA
+#CD32_Boromir_D60_6	BC32	CACTCAAC
+#CD32_Frodo_D60_1	BC29	ATCGCCAT
+#CD32_Frodo_D60_4	BC30	CATAAAGG
+#CD32_Frodo_D60_6	BC31	TCACGGTA
+#CD32_Gandalf_D60_1	BC32	CACTCAAC
+#CD32_Gandalf_D60_2	BC33	GCTGTGTA
+#CD32_Gandalf_D60_3	BC34	TTGCGTCG
+#CD32_Gimli_D60_1	BC35	ATATGAGA
+#CD32_Gimli_D60_2	BC36	CACCTCAG
+#CD32_Gimli_D60_3	BC37	GCTACTTC
+#CD32_Merry_D60_1	BC38	TGGGAGCT
+#CD32_Merry_D60_3	BC39	ATCCGGCA
+#CD32_Merry_D60_6	BC40	CCGTTATG
+
+#Aussie cohort A (2020_03_30)
+#CD31 Gimli D60 125 AT210 (c3)
+#CD31 Legolas D60 146 NI (c3)
+#CD33 Bofur D60 123 - AT34
+#CD33 Bombur D60 123 - AT34 (1.2allelictarg)
+#CD33 Dwalin D60 123 - AT32 (2o1b) (CORR)
+#CD33 Gloin D60 123 AT34 (corr 2oc3) (CORR)
+#CD33 Kili D60 123 AT32 (20c1 corr)
+#CD33 Oin D60 123 C32
+#CD34 Dori D60 123 AT32 (c16)
+#CD33 Ori D60 123 C11
+
+#CD31 Gimli D60 125_1	BC21	AGCAGTTA	Pool3
+#CD31 Gimli D60 125_2	BC22	CTTGTACC	Pool3
+#CD31 Gimli D60 125_3	BC23	GAACCCGG	Pool3
+#CD31 Legolas D60 146_1	BC24	TCGTAGAT	Pool3
+#CD31 Legolas D60 146_2	BC25	ACGCGGAA	Pool3
+#CD31 Legolas D60 146_3	BC26	CGCTATCC	Pool3
+#CD33 Bofur D60 123_1	BC27	GTTGCATG	Pool3
+#CD33 Bofur D60 123_2	BC28	TAAATCGT	Pool3
+#CD33 Bofur D60 123_3	BC29	ATCGCCAT	Pool3
+#CD33 Bombur D60 123_1	BC30	CATAAAGG	Pool3
+#CD33 Bombur D60 123_2	BC31	TCACGGTA	Pool3
+#CD33 Bombur D60 123_3	BC32	CACTCAAC	Pool3
+#CD33 Dwalin D60 123_1	BC33	GCTGTGTA	Pool3
+#CD33 Dwalin D60 123_2	BC34	TTGCGTCG	Pool3
+#CD33 Dwalin D60 123_3	BC35	ATATGAGA	Pool3
+#CD33 Gloin D60 123_1	BC26	CGCTATCC	Pool4
+#CD33 Gloin D60 123_2	BC27	GTTGCATG	Pool4
+#CD33 Gloin D60 123_3	BC28	TAAATCGT	Pool4
+#CD33 Kili D60 123_1	BC29	ATCGCCAT	Pool4
+#CD33 Kili D60 123_2	BC30	CATAAAGG	Pool4
+#CD33 Kili D60 123_3	BC31	TCACGGTA	Pool4
+#CD33 Oin D60 123_1	BC32	CACTCAAC	Pool4
+#CD33 Oin D60 123_2	BC33	GCTGTGTA	Pool4
+#CD33 Oin D60 123_3	BC34	TTGCGTCG	Pool4
+#CD34 Dori D60 123_1	BC35	ATATGAGA	Pool4
+#CD34 Dori D60 123_2	BC36	CACCTCAG	Pool4
+#CD34 Dori D60 123_3	BC37	GCTACTTC	Pool4
+#CD33 Ori D60 123_1	BC38	TGGGAGCT	Pool4
+#CD33 Ori D60 123_2	BC39	ATCCGGCA	Pool4
+#CD33 Ori D60 123_3	BC40	CCGTTATG	Pool4
+
+#Aussie cohort B (2020_04_22)
+#CD36_Bifur_D60_123 AT34 (18.2 targmut)
+#CD36_Bofur_D60_123 (AT34)
+#CD36_Bombur_D60_123 AT34 (homo allelic targ 1.2)
+#CD36_Dori_D60_123 AT32 (c16)
+#CD36_Dwalin_D60_123 AT32 (2c1b corr)
+#CD36_Fili_D60_123 AT32 (c16)
+#CD36_Gloin_D60_123 AT34 (corr2oc3)
+#CD36_Kili_D60_123 AT32 (2oc1 corr)
+#CD36_Oin_D60_123 C32
+#CD36_Ori_D60_123 C11
+
+#CD36_Bifur_D60_123_1	BC21	AGCAGTTA	Pool5
+#CD36_Bifur_D60_123_2	BC22	CTTGTACC	Pool5
+#CD36_Bifur_D60_123_3	BC23	GAACCCGG	Pool5
+#CD36_Bofur_D60_123_1	BC24	TCGTAGAT	Pool5
+#CD36_Bofur_D60_123_2	BC25	ACGCGGAA	Pool5
+#CD36_Bofur_D60_123_3	BC26	CGCTATCC	Pool5
+#CD36_Bombur_D60_123_1	BC27	GTTGCATG	Pool5
+#CD36_Bombur_D60_123_2	BC28	TAAATCGT	Pool5
+#CD36_Bombur_D60_123_3	BC29	ATCGCCAT	Pool5
+#CD36_Dori_D60_123_1	BC30	CATAAAGG	Pool5
+#CD36_Dori_D60_123_2	BC31	TCACGGTA	Pool5
+#CD36_Dori_D60_123_3	BC32	CACTCAAC	Pool5
+#CD36_Dwalin_D60_123_1	BC33	GCTGTGTA	Pool5
+#CD36_Dwalin_D60_123_2	BC34	TTGCGTCG	Pool5
+#CD36_Dwalin_D60_123_3	BC35	ATATGAGA	Pool5
+#CD36_Fili_D60_123_1	BC26	CGCTATCC	Pool6
+#CD36_Fili_D60_123_2	BC27	GTTGCATG	Pool6
+#CD36_Fili_D60_123_3	BC28	TAAATCGT	Pool6
+#CD36_Gloin_D60_123_1	BC29	ATCGCCAT	Pool6
+#CD36_Gloin_D60_123_2	BC30	CATAAAGG	Pool6
+#CD36_Gloin_D60_123_3	BC31	TCACGGTA	Pool6
+#CD36_Kili_D60_123_1	BC32	CACTCAAC	Pool6
+#CD36_Kili_D60_123_2	BC33	GCTGTGTA	Pool6
+#CD36_Kili_D60_123_3	BC34	TTGCGTCG	Pool6
+#CD36_Oin_D60_123_1	fBC35	ATATGAGA	Pool6
+#CD36_Oin_D60_123_2	BC36	CACCTCAG	Pool6
+#CD36_Oin_D60_123_3	BC37	GCTACTTC	Pool6
+#CD36_Ori_D60_123_1	BC38	TGGGAGCT	Pool6
+#CD36_Ori_D60_123_2	BC39	ATCCGGCA	Pool6
+#CD36_Ori_D60_123_3	BC40	CCGTTATG	Pool6
+```
+
+```{read details}
+#2020_06_01
+
+#Two cohorts were sequenced (British and Aus). Two batches of cohort 2 (CD33 and CD36) were sequenced, this also included resequencing of the first cohort (british, C29/CD32. CD29 is a rep of the original organoid study at D90. All other samples are at Day 60; for VISA time constraint and to capture birth of Purkinjes)
+
+#I have transferred files from the Wellcome server to samn@cgatui.imm.ox.ac.uk /ifs/research-groups/dpag/proj001/Disease_cohort_2
+#ftp://herhevto:cetlo-ekhyt-38@bsg-ftp.well.ox.ac.uk/200520_A00711_0202_BHNTKJDMXX
+ 
+#Please also see the "additional_analyses" folder which is one level up the above #data files:
+#ftp://herhevto:cetlo-ekhyt-38@bsg-ftp.well.ox.ac.uk/
+#I have checked random md5s and they look good
+
+#912c705e4a03c1950a9cd766f0f2f7b3  10X-gex-grouped/NAY8045A4.tar.gz
+#912c705e4a03c1950a9cd766f0f2f7b3 
+
+#I have extracted all the demux files and will focus initially on the RDS objects NAY8045A1 AND NAY8045A1 from '10X-aggregate.htodemux.tar.gz' using
+#tar-xvf 10X-aggregate.htodemux.tar.gz
+#The demux file above was superceded by the aggregate file 
+#'10X-aggregate.tar.gz' as this contains preferable multiseq #demultiplexing objects. I need to also explore further #libraries
+
+
+#Demultiplexing has been done using 2 different algorithms #from Seurat: MULTIseq and HTOdemux. So,
+
+#- 10X-aggregate.tar.gz : data demultiplexed using MULTIseq,
+#- 10X-aggregate.htodemux.tar.gz : data demultiplexed using HTOdemux.
+
+#For chemical hashing, you should be using MULTIseq, but I #added the other one so you can compare the methods if not #happy.
+
+#Regarding namings, if you take a look at the file #"samples.metadata", you will understand what each of those #names actually mean:
+
+#- names like NAY8045A1 are Library IDs, so because one #library can be sequenced multiple times, you will see that #this value can be present in multiple rows;
+#- names like 789195_GX08 are Sequencing IDs, this means a library sequenced in a specific lane/flowcell, so this value may never be present in more than one row.
+
+#When you sequence a library more than once, you will want to group the reads together and treat them as one sample. That's when you start seeing output samples/folders with the Library ID names (e.g. NAY8045A1). If the sample was sequenced only once, the sample/folder will be named using the Sequencing ID (789195_GX08).
+
+#- NAY8045A1 (GEX) was sequenced twice, so in the 10X-aggregate folder the output NAY8045A1 is representing the combined info from 779005_GX73 and 789196_GX73;
+#- NAY8045A2 (GEX) was sequenced twice, so in the 10X-aggregate folder the output NAY8045A2 is representing the combined info from 779005_GX85 and 789196_GX85;
+#- NAY8045A3, NAY8045A4, NAY8045A9, NAY8045A10 were sequenced only once, so in the 10X-aggregate folder they are represented as 789195_GX55, 789195_GX67, 789195_GX08, and 789195_GX20, respectively.
+
+```
+
+```{r read into memory FOR HTODEMUX}
+#Note, I want to be using the multiseq files, not the htodemux, though these may also be worth checking
+
+#NAY8045A1<-readRDS("/Users/samnayler/Desktop/Disease_Seq/20200601/NAY8045A1/objects/filtered_matrix/seurat.rds")
+
+#NAY8045A2<-readRDS("/Users/samnayler/Desktop/Disease_Seq/20200601//NAY8045A2/objects/filtered_matrix/seurat.rds")
+
+#NAY_789195_GX08<-readRDS("/Users/samnayler/Desktop/Disease_Seq/20200601/789195_GX08/objects/filtered_matrix/seurat.rds")
+
+#NAY_789195_GX20<-readRDS("/Users/samnayler/Desktop/Disease_Seq/20200601/789195_GX20/objects/filtered_matrix/seurat.rds")
+
+#NAY_789195_GX55<-readRDS("/Users/samnayler/Desktop/Disease_Seq/20200601/789195_GX55/objects/filtered_matrix/seurat.rds")
+
+#NAY_789195_GX67<-readRDS("/Users/samnayler/Desktop/Disease_Seq/20200601/789195_GX67/objects/filtered_matrix/seurat.rds")
+
+```
+
+```{r read into memory for MULTISEQ}
+#Note, I want to be using the multiseq files, not the htodemux, though these may also be worth checking
+
+NAY8045A1<-readRDS("/Users/samnayler/Desktop/Disease_Seq/20200603/10X-aggregate/NAY8045A1/objects/filtered_matrix/seurat.rds")
+
+levels(NAY8045A1@meta.data$HTO_classification)
+levels(NAY8045A1@meta.data$HTO_classification.global)
+levels(NAY8045A1@meta.data$hash.ID)
+
+
+NAY8045A2<-readRDS("/Users/samnayler/Desktop/Disease_Seq/20200603/10X-aggregate/NAY8045A2/objects/filtered_matrix/seurat.rds")
+
+
+NAY_789195_GX08<-readRDS("/Users/samnayler/Desktop/Disease_Seq/20200603/10X-aggregate/789195_GX08/objects/filtered_matrix/seurat.rds")
+
+
+NAY_789195_GX20<-readRDS("/Users/samnayler/Desktop/Disease_Seq/20200603/10X-aggregate/789195_GX20/objects/filtered_matrix/seurat.rds")
+
+NAY_789195_GX55<-readRDS("/Users/samnayler/Desktop/Disease_Seq/20200603/10X-aggregate/789195_GX55/objects/filtered_matrix/seurat.rds")
+
+NAY_789195_GX67<-readRDS("/Users/samnayler/Desktop/Disease_Seq/20200603/10X-aggregate/789195_GX67/objects/filtered_matrix/seurat.rds")
+```
+
+
+
+```{r prelim pipe NAY8045A1}
+#https://satijalab.org/seurat/v3.1/sctransform_vignette.html
+#NAY8045A1<-PercentageFeatureSet(NAY8045A1, pattern ="^MT-", col.name = "percent.mt")
+#NAY8045A1<-SCTransform(NAY8045A1, vars.to.regress = "percent.mt", verbose = FALSE)
+#NAY8045A1<-RunPCA(NAY8045A1, verbose = FALSE)
+#NAY8045A1<-RunUMAP(NAY8045A1, dims = 1:30, verbose = FALSE)
+#NAY8045A1<-FindNeighbors(NAY8045A1, dims = 1:30, verbose = FALSE)
+#NAY8045A1<-FindClusters(NAY8045A1, verbose = FALSE)
+#DimPlot(NAY8045A1, label = TRUE) + NoLegend()
+
+```
+
+
+
+```{r metadata NAY8045A1}
+#Generate an individual metadata template for each library, populate .csv with all pertinent criteria
+#############
+metatest<-read.csv(file = "/Users/samnayler/Desktop/Disease_Seq/20200604_metatestA1.csv")
+A2met<-as.data.frame(NAY8045A1@meta.data)
+
+
+write.csv(A2met, file = "/Users/samnayler/Desktop/Disease_Seq/20200617_NAY8045A1md.csv")
+sample_meta <- read.csv(file="/Users/samnayler/Desktop/Disease_Seq/20200604_metatestA1.csv", sep=",")
+cell_meta <- read.csv(file="/Users/samnayler/Desktop/Disease_Seq/20200617_NAY8045A1md.csv")
+ 
+meta_2 <- merge(cell_meta, sample_meta, by.x="hash.ID", by.y="hash.ID",all.x=T)
+ 
+meta_3 <- meta_2[order(meta_2$X),]
+rownames(meta_3)<-meta_3$X 
+
+NAY8045A1@meta.data<-meta_3
+############
+#This works but the merge will be the test
+levels(NAY8045A1@meta.data$HTO_classification)
+levels(NAY8045A1@meta.data$HTO_classification.global)
+levels(NAY8045A1@meta.data$hash.ID)
+#These provide different readouts before after metadata incorporation. CHECK
+```
+
+
+```{r process NAY8045A1}
+NAY8045A1<-PercentageFeatureSet(NAY8045A1, pattern ="^MT-", col.name = "percent.mt")
+NAY8045A1<-SCTransform(NAY8045A1, vars.to.regress = "percent.mt", verbose = FALSE)
+NAY8045A1<-RunPCA(NAY8045A1, verbose = FALSE)
+NAY8045A1<-RunUMAP(NAY8045A1, dims = 1:30, verbose = FALSE)
+NAY8045A1<-FindNeighbors(NAY8045A1, dims = 1:30, verbose = FALSE)
+NAY8045A1<-FindClusters(NAY8045A1, verbose = FALSE)
+DimPlot(NAY8045A1, label = TRUE) + NoLegend()
+#Need to do elbow plots to tinker with UMAP output
+```
+
+```{r further metadata and processing NAY8045A2}
+NAY8045A2
+#An object of class Seurat 
+#33550 features across 8977 samples within 2 assays 
+#Active assay: RNA (33538 features)
+#1 other assay present: HTO
+head(NAY8045A2@meta.data$hash.ID)
+#BC29-BC40
+VlnPlot(NAY8045A2, features = 'percent.mito', group.by ="hash.ID")
+
+#Reformat metadata to include new layers
+metatestA2<-read.csv(file = "/Users/samnayler/Desktop/Disease_Seq/20200604_metatestA2.csv")
+
+metatronA2<-as.data.frame(NAY8045A2@meta.data)
+
+
+######
+#Test new method
+write.csv(metatronA2, file = "/Users/samnayler/Desktop/Disease_Seq/20200617_NAY8045A2md.csv")
+sample_meta2 <- read.csv(file="/Users/samnayler/Desktop/Disease_Seq/20200604_metatestA2.csv", sep=",")
+cell_meta2 <- read.csv(file="/Users/samnayler/Desktop/Disease_Seq/20200617_NAY8045A2md.csv")
+ 
+meta_2 <- merge(cell_meta2, sample_meta2, by.x="hash.ID", by.y="hash.ID",all.x=T)
+ 
+meta_3 <- meta_2[order(meta_2$X),]
+rownames(meta_3)<-meta_3$X
+
+NAY8045A2@meta.data<-meta_3
+#This works but the merge will be the test
+
+
+```
+
+```{r process NAY8045A2}
+#Now process
+NAY8045A2<-PercentageFeatureSet(NAY8045A2, pattern ="^MT-", col.name = "percent.mt")
+NAY8045A2<-SCTransform(NAY8045A2, vars.to.regress = "percent.mt", verbose = FALSE)
+NAY8045A2<-RunPCA(NAY8045A2, verbose = FALSE)
+NAY8045A2<-RunUMAP(NAY8045A2, dims = 1:30, verbose = FALSE)
+NAY8045A2<-FindNeighbors(NAY8045A2, dims = 1:30, verbose = FALSE)
+NAY8045A2<-FindClusters(NAY8045A2, verbose = FALSE)
+DimPlot(NAY8045A2, label = TRUE) + NoLegend()
+
+
+gene <- "DYNLRB2"
+g<-VlnPlot(NAY8045A2, features = gene, group.by ="genotype")
+h<-VlnPlot(NAY8045A2, features = gene, group.by ="hash.ID")
+i<-VlnPlot(NAY8045A2, features = gene, group.by ="line")
+
+plot_grid(g,h,i)
+
+```
+
+
+```{r set up metadata for NAY_789195_GX08}
+
+NAY_789195_GX08
+#An object of class Seurat 
+#33553 features across 4324 samples within 2 assays 
+#Active assay: RNA (33538 features)
+# 1 other assay present: HTO
+
+VlnPlot(NAY_789195_GX08, features = 'percent.mito', group.by ="hash.ID")
+#BC21-BC35
+
+head(NAY_789195_GX08@meta.data$hash.ID)
+#BC21-BC35
+
+#Reformat metadata to include new layers
+metatestGX08<-read.csv(file="/Users/samnayler/Desktop/Disease_Seq/20200606_metatestGX08.csv")
+#I have added some extra metadata levels here I should retrospectively update in the others
+
+metatronGX08<-as.data.frame(NAY_789195_GX08@meta.data)
+
+#############
+metatest<-read.csv(file = "/Users/samnayler/Desktop/Disease_Seq/20200606_metatestGX08.csv")
+A2met<-as.data.frame(NAY_789195_GX08@meta.data)
+
+
+write.csv(metatronGX08, file = "/Users/samnayler/Desktop/Disease_Seq/20200617_NAY_789195_GX08.csv")
+sample_meta <- read.csv(file="/Users/samnayler/Desktop/Disease_Seq/20200606_metatestGX08.csv", sep = ",")
+cell_meta <- read.csv(file="/Users/samnayler/Desktop/Disease_Seq/20200617_NAY_789195_GX08.csv")
+ 
+meta_2 <- merge(cell_meta, sample_meta, by.x="hash.ID", by.y="hash.ID",all.x=T)
+ 
+meta_3 <- meta_2[order(meta_2$X),]
+rownames(meta_3)<-meta_3$X 
+
+NAY_789195_GX08@meta.data<-meta_3
+############ recheck this
+
+```
+
+```{r process NAY_789195_GX08}
+
+#Now process
+NAY_789195_GX08<-PercentageFeatureSet(NAY_789195_GX08, pattern ="^MT-", col.name = "percent.mt")
+NAY_789195_GX08<-SCTransform(NAY_789195_GX08, vars.to.regress = "percent.mt", verbose = FALSE)
+NAY_789195_GX08<-RunPCA(NAY_789195_GX08, verbose = FALSE)
+NAY_789195_GX08<-RunUMAP(NAY_789195_GX08, dims = 1:30, verbose = FALSE)
+NAY_789195_GX08<-FindNeighbors(NAY_789195_GX08, dims = 1:30, verbose = FALSE)
+NAY_789195_GX08<-FindClusters(NAY_789195_GX08, verbose = FALSE)
+DimPlot(NAY_789195_GX08, label = TRUE) + NoLegend()
+
+
+gene <- "TTR"
+g<-VlnPlot(NAY_789195_GX08, features = gene, group.by ="genotype")
+h<-VlnPlot(NAY_789195_GX08, features = gene, group.by ="hash.ID")
+i<-VlnPlot(NAY_789195_GX08, features = gene, group.by ="line")
+
+plot_grid(g,h,i)
+
+```
+
+```{r set up NAY_789195_GX20 metadata}
+NAY_789195_GX20
+#An object of class Seurat 
+#33553 features across 895 samples within 2 assays 
+#Active assay: RNA (33538 features)
+# 1 other assay present: HTO
+
+VlnPlot(NAY_789195_GX20, features = 'percent.mito', group.by ="hash.ID")
+
+metatestGX20<-read.csv(file = "/Users/samnayler/Desktop/Disease_Seq/20200606_metatestGX20.csv")
+#I have added some extra metadata levels here I should retrospectively update in the others
+
+head(metatestGX20)
+metatronGX20<-as.data.frame(NAY_789195_GX20@meta.data)
+#######
+metatest<-read.csv(file = "/Users/samnayler/Desktop/Disease_Seq/20200606_metatestGX20.csv")
+A2met<-as.data.frame(NAY_789195_GX20@meta.data)
+
+
+write.csv(metatronGX20, file = "/Users/samnayler/Desktop/Disease_Seq/20200617_NAY_789195_GX20md.csv")
+sample_meta <- read.csv(file"/Users/samnayler/Desktop/Disease_Seq/20200617_NAY_789195_GX20md.csv", sep=",")
+cell_meta <- read.csv(file="/Users/samnayler/Desktop/Disease_Seq/20200606_metatestGX20.csv")
+ 
+meta_2 <- merge(cell_meta, sample_meta, by.x="hash.ID", by.y="hash.ID",all.x=T)
+ 
+meta_3 <- meta_2[order(meta_2$X),]
+rownames(meta_3)<-meta_3$X 
+
+NAY_789195_GX20@meta.data<-meta_3
+
+
+```
+
+```{r process NAY_789195_GX20}
+#Now process
+NAY_789195_GX20<-PercentageFeatureSet(NAY_789195_GX20, pattern ="^MT-", col.name = "percent.mt")
+NAY_789195_GX20<-SCTransform(NAY_789195_GX20, vars.to.regress = "percent.mt", verbose = FALSE)
+NAY_789195_GX20<-RunPCA(NAY_789195_GX20, verbose = FALSE)
+NAY_789195_GX20<-RunUMAP(NAY_789195_GX20, dims = 1:30, verbose = FALSE)
+NAY_789195_GX20<-FindNeighbors(NAY_789195_GX20, dims = 1:30, verbose = FALSE)
+NAY_789195_GX20<-FindClusters(NAY_789195_GX08, verbose = FALSE)
+DimPlot(NAY_789195_GX20, label = TRUE) + NoLegend()
+
+
+gene <- "TTR"
+g<-VlnPlot(NAY_789195_GX20, features = gene, group.by ="genotype")
+h<-VlnPlot(NAY_789195_GX20, features = gene, group.by ="hash.ID")
+i<-VlnPlot(NAY_789195_GX20, features = gene, group.by ="line")
+
+plot_grid(g,h,i)
+
+```
+
+```{r set up metadata for NAY_789195_GX55}
+NAY_789195_GX55
+#An object of class Seurat 
+#33553 features across 2808 samples within 2 assays 
+#Active assay: RNA (33538 features)
+# 1 other assay present: HTO
+
+VlnPlot(NAY_789195_GX55, features = 'percent.mito', group.by ="hash.ID")
+#BC21-BC35
+
+metatestGX55<-read.csv(file = "/Users/samnayler/Desktop/Disease_Seq/20200606_metatestGX55.csv")
+
+head(metatestGX55)
+metatronGX55<-as.data.frame(NAY_789195_GX55@meta.data)
+
+#############
+metatest<-read.csv(file = "/Users/samnayler/Desktop/Disease_Seq/20200606_metatestGX55.csv"))
+A2met<-as.data.frame(NAY_789195_GX55@meta.data)
+
+
+write.csv(metatronGX55, file = "/Users/samnayler/Desktop/Disease_Seq/20200617_NAY_789195_GX55md.csv")
+sample_meta <- read.csv(file="/Users/samnayler/Desktop/Disease_Seq/20200606_metatestGX55.csv", sep=",")
+cell_meta <- read.csv(file="/Users/samnayler/Desktop/Disease_Seq/20200617_NAY_789195_GX55md.csv")
+ 
+meta_2 <- merge(cell_meta, sample_meta, by.x="hash.ID", by.y="hash.ID",all.x=T)
+ 
+meta_3 <- meta_2[order(meta_2$X),]
+rownames(meta_3)<-meta_3$X 
+
+NAY_789195_GX55@meta.data<-meta_3
+
+
+```
+
+```{r process NAY_789195_GX55}
+
+#Now process
+NAY_789195_GX55<-PercentageFeatureSet(NAY_789195_GX55, pattern ="^MT-", col.name = "percent.mt")
+NAY_789195_GX55<-SCTransform(NAY_789195_GX55, vars.to.regress = "percent.mt", verbose = FALSE)
+NAY_789195_GX55<-RunPCA(NAY_789195_GX55, verbose = FALSE)
+NAY_789195_GX55<-RunUMAP(NAY_789195_GX55, dims = 1:30, verbose = FALSE)
+NAY_789195_GX55<-FindNeighbors(NAY_789195_GX55, dims = 1:30, verbose = FALSE)
+NAY_789195_GX55<-FindClusters(NAY_789195_GX55, verbose = FALSE)
+DimPlot(NAY_789195_GX55, label = TRUE) + NoLegend()
+
+
+gene <- "TTR"
+g<-VlnPlot(NAY_789195_GX20, features = gene, group.by ="genotype")
+h<-VlnPlot(NAY_789195_GX20, features = gene, group.by ="hash.ID")
+i<-VlnPlot(NAY_789195_GX20, features = gene, group.by ="line")
+
+plot_grid(g,h,i)
+
+
+```
+
+```{r set up metadata for NAY_789195_GX67}
+NAY_789195_GX67
+#An object of class Seurat 
+#33553 features across 506 samples within 2 assays 
+#Active assay: RNA (33538 features)
+# 1 other assay present: HTO
+
+VlnPlot(NAY_789195_GX67, features = 'percent.mito', group.by ="hash.ID")
+#BC26-BC32, BC34,38,39,40.
+#STOPPED HERE 6/06
+
+
+head(NAY_789195_GX67@meta.data$hash.ID)
+#Something weird here, some samples appear to be missing and there are others that shouldnt be here? ALso hash.id shows DOUBLET, is the metadata weird?
+
+metatestGX67<-read.csv(file = "/Users/samnayler/Desktop/Disease_Seq/20200606_metatestGX67.csv")
+
+
+
+head(metatestGX67)
+metatronGX67<-as.data.frame(NAY_789195_GX67@meta.data)
+
+metatest<-read.csv(file = "/Users/samnayler/Desktop/Disease_Seq/20200606_metatestGX67.csv")
+A2met<-as.data.frame(NAY_789195_GX67@meta.data)
+
+
+write.csv(metatronGX67, file = "/Users/samnayler/Desktop/Disease_Seq/20200617_NAY_789195_GX67md.csv")
+sample_meta <- read.csv(file"/Users/samnayler/Desktop/Disease_Seq/20200617_NAY_789195_GX67md.csv", sep=",")
+cell_meta <- read.csv(file="/Users/samnayler/Desktop/Disease_Seq/20200606_metatestGX67.csv")
+ 
+meta_2 <- merge(cell_meta, sample_meta, by.x="hash.ID", by.y="hash.ID",all.x=T)
+ 
+meta_3 <- meta_2[order(meta_2$X),]
+rownames(meta_3)<-meta_3$X 
+
+NAY_789195_GX67@meta.data<-meta_3
+
+```
+
+```{r process NAY_789195_GX67}
+#Now process
+NAY_789195_GX55<-PercentageFeatureSet(NAY_789195_GX55, pattern ="^MT-", col.name = "percent.mt")
+NAY_789195_GX55<-SCTransform(NAY_789195_GX55, vars.to.regress = "percent.mt", verbose = FALSE)
+NAY_789195_GX55<-RunPCA(NAY_789195_GX55, verbose = FALSE)
+NAY_789195_GX55<-RunUMAP(NAY_789195_GX55, dims = 1:30, verbose = FALSE)
+NAY_789195_GX55<-FindNeighbors(NAY_789195_GX55, dims = 1:30, verbose = FALSE)
+NAY_789195_GX55<-FindClusters(NAY_789195_GX55, verbose = FALSE)
+DimPlot(NAY_789195_GX55, label = TRUE) + NoLegend()
+
+gene <- "TTR"
+g<-VlnPlot(NAY_789195_GX20, features = gene, group.by ="genotype")
+h<-VlnPlot(NAY_789195_GX20, features = gene, group.by ="hash.ID")
+i<-VlnPlot(NAY_789195_GX20, features = gene, group.by ="line")
+
+plot_grid(g,h,i)
+
+
+```
+
+
+```{r make an integrated object with just A1 and A2 to check metadata}
+#I would need to reload all the objects and set up the metadata but not yet run the SCT normalization
+#START INTEGRATED WORKFLOW HERE
+#may need to percentagefeatureset
+
+head(NAY8045A1@meta.data)
+dim(NAY8045A1@meta.data)
+head(NAY8045A2@meta.data)
+dim(NAY8045A2@meta.data)
+
+#Need to filter out doublets for NAY8045A1, NAY8045A2
+table(NAY8045A1@meta.data$HTO_classification.global)
+table(NAY8045A2@meta.data$HTO_classification.global)
+table(NAY8045A1@meta.data$hash.ID)
+table(NAY8045A2@meta.data$hash.ID)
+
+
+#Make sure to update to dev
+#devtools::install_github(repo = "satijalab/seurat", ref = "develop")
+#Note only run thise after reading in the non-normalized objects
+
+#disseq.list.test <- c(NAY8045A1, NAY8045A2)
+#Should come back to subset out doublets
+#Want to subset only hashID singlets
+Idents(NAY8045A1) <-"hash.ID"
+Idents(NAY8045A2) <-"hash.ID"
+
+
+
+NAY8045A1_s<-subset(NAY8045A1, idents = "Doublet", invert = TRUE)
+NAY8045A2_s<-subset(NAY8045A2, idents = "Doublet", invert = TRUE)
+VlnPlot(NAY8045A1_s, features ="percent.mito", group.by = "hash.ID")
+
+
+disseq.list.test <- c(NAY8045A1_s, NAY8045A2_s)
+
+
+for (i in 1:length(disseq.list.test)) {
+   disseq.list.test[[i]] <- SCTransform(disseq.list.test[[i]], verbose = FALSE)
+}
+
+disseq.features <- SelectIntegrationFeatures(object.list = disseq.list.test, nfeatures = 3000)
+options(future.globals.maxSize = 4000 * 1024^2)
+
+disseq.list.test<- PrepSCTIntegration(object.list = disseq.list.test, anchor.features = disseq.features, verbose = FALSE)
+
+disseq.anchors.test <- FindIntegrationAnchors(object.list = disseq.list.test, normalization.method = "SCT", anchor.features = disseq.features, verbose = FALSE)
+
+disseq.integrated.test <- IntegrateData(anchorset = disseq.anchors.test, normalization.method = "SCT", verbose = FALSE)
+
+df<-as.data.frame(disseq.integrated.test@meta.data)
+write.csv(df, file = "/Users/samnayler/Desktop/md.csv")
+
+#disseq.integrated.test <- RunPCA(disseq.integrated.test, verbose = FALSE)
+#disseq.integrated.test <- RunUMAP(disseq.integrated.test, dims = 1:20)
+#a<-DimPlot(disseq.integrated.test, group.by = c("line"), combine = TRUE)
+disseq.integrated.test <- RunPCA(disseq.integrated.test, verbose = FALSE)
+disseq.integrated.test <- RunUMAP(disseq.integrated.test, dims = 1:30)
+b<-DimPlot(disseq.integrated.test, group.by = c("line"), combine = TRUE)
+#disseq.integrated.test <- RunPCA(disseq.integrated.test, verbose = FALSE)
+#disseq.integrated.test <- RunUMAP(disseq.integrated.test, dims = 1:50)
+#c<-DimPlot(disseq.integrated.test, group.by = c("line"), combine = TRUE)
+
+#plot_grid(a,b,c, nrow = 3, labels = c("20 dims", "30 dims", "50 dims"))
+#saveRDS(disseq.integrated.test, file = "/Users/samnayler/Desktop/Disease_Seq/20200618_British_Integrated.rds")
+disseq.integrated.test<-readRDS(file = "/Users/samnayler/Desktop/Disease_Seq/20200618_British_Integrated.rds")
+#comeback
+
+
+
+#Make a pipe function here for iterating through colnames(disseq.integrated.test@meta.data)
+a<-DimPlot(disseq.integrated.test, group.by = c("line"), combine = TRUE)
+b<-DimPlot(disseq.integrated.test, group.by = c("differentiation"), combine = TRUE)
+c<-DimPlot(disseq.integrated.test, group.by = c("genotype"), combine = TRUE)
+d<-DimPlot(disseq.integrated.test, group.by = c("hash.ID"), combine = TRUE)
+e<-DimPlot(disseq.integrated.test, group.by = c("age"), combine = TRUE)
+f<-DimPlot(disseq.integrated.test, group.by = c("lineclone"), combine = TRUE)
+g<-DimPlot(disseq.integrated.test, group.by = c("nCount_RNA"), combine = TRUE)
+h<-DimPlot(disseq.integrated.test, group.by = c("pool"), combine = TRUE)
+i<-DimPlot(disseq.integrated.test, group.by = c("pseudonym"), combine = TRUE)
+j<-DimPlot(disseq.integrated.test, group.by = c("cohort"), combine = TRUE)
+k<-DimPlot(disseq.integrated.test, group.by = c("gender"), combine = TRUE)
+l<-DimPlot(disseq.integrated.test, group.by = c("treatment"), combine = TRUE)
+
+qcplots1<-plot_grid(a,b,c,d, nrow = 4, labels = c("line", "differentiation", "genotype", "hash.ID"))
+qcplots2<-plot_grid(e,f,g,h, nrow = 4, labels = c("age", "lineclone", "nCount_RNA", "pool"))
+qcplots3<-plot_grid(i,j,k,l, nrow = 4, labels = c("pseudonym", "cohort", "gender", "treatment"))
+
+```
+
+
+
+```{r subsetting}
+#This will be used for testing but defunct and subsumed BEFORE integration workflow
+#Idents(disseq.integrated.test) <-"hash.ID"
+#disseq.integrated.test
+#An object of class Seurat 
+#57167 features across 19403 samples within 4 assays 
+#levels(Idents(disseq.integrated.test))
+# [1] "BC24"    "BC28"    "BC23"    "BC29"    "BC27"    "BC26"    "BC21"    "BC22"    #"BC32"   
+#[10] "BC25"    "BC30"    "BC31"    "Doublet" "BC33"    "BC34"    "BC35"    "BC36"    #"BC37"   
+#[19] "BC38"    "BC39"    "BC40"
+
+#testsub<-subset(disseq.integrated.test, idents = "Doublet", invert = TRUE)
+
+#testsub
+#An object of class Seurat 
+#57167 features across 17970 samples within 4 assays 
+# [1] "BC24" "BC28" "BC23" "BC29" "BC27" "BC26" "BC21" "BC22" "BC32" "BC25" "BC30" "BC31"
+#levels(Idents(testsub))
+#[13] "BC33" "BC34" "BC35" "BC36" "BC37" "BC38" "BC39" "BC40"
+
+#no<-VlnPlot(disseq.integrated.test, features = "percent.mito", group.by = "hash.ID")
+#sub<-VlnPlot(testsub, features = "percent.mito", group.by = "hash.ID")
+#plot_grid(no,sub, nrow = 2, labels = c("disseq.integrated.test", "testsub"))
+
+#disseq.integrated.test <- RunPCA(disseq.integrated.test, verbose = FALSE)
+#disseq.integrated.test <- RunUMAP(disseq.integrated.test1, dims = 1:30)
+#a<-DimPlot(disseq.integrated.test, group.by = c("line"), combine = TRUE)
+
+#disseq.integrated.test2 <- RunPCA(testsub, verbose = FALSE)
+#disseq.integrated.test2 <- RunUMAP(disseq.integrated.test2, dims = 1:30)
+#b<-DimPlot(disseq.integrated.test2, group.by = c("line"), combine = TRUE)
+
+#plot_grid(a,b, nrow = 2, labels = c("Doublets included", "No doublets"))
+
+
+#a<-DimPlot(disseq.integrated.test1, group.by = c("line"), combine = FALSE)
+#VlnPlot(disseq.integrated.test1, features = "percent.mito", group.by = "line")
+#WhichCells(disseq.integrated.test1, idents = "NA")
+
+######This works very well BUT BETTER TO SUBSET OBJECTS BEFORE ANY PROCESSING
+
+#Make a pipe function here for iterating through colnames(disseq.integrated.test@meta.data)
+#a<-DimPlot(disseq.integrated.test2, group.by = c("line"), combine = TRUE)
+#b<-DimPlot(disseq.integrated.test2, group.by = c("differentiation"), combine = TRUE)
+#c<-DimPlot(disseq.integrated.test2, group.by = c("genotype"), combine = TRUE)
+#d<-DimPlot(disseq.integrated.test2, group.by = c("hash.ID"), combine = TRUE)
+#e<-DimPlot(disseq.integrated.test2, group.by = c("age"), combine = TRUE)
+#f<-DimPlot(disseq.integrated.test2, group.by = c("lineclone"), combine = TRUE)
+#g<-DimPlot(disseq.integrated.test2, group.by = c("nCount_RNA"), combine = TRUE)
+#h<-DimPlot(disseq.integrated.test2, group.by = c("pool"), combine = TRUE)
+#i<-DimPlot(disseq.integrated.test2, group.by = c("pseudonym"), combine = TRUE)
+#j<-DimPlot(disseq.integrated.test2, group.by = c("cohort"), combine = TRUE)
+#k<-DimPlot(disseq.integrated.test2, group.by = c("gender"), combine = TRUE)
+#l<-DimPlot(disseq.integrated.test2, group.by = c("treatment"), combine = TRUE)
+
+#qcplots<-plot_grid(a,b,c,d,e,f,g,h,i,j,k, nrow = 3, labels = c("line", "differentiation", "genotype", "hash.ID", "age", "lineclone", "nCount_RNA", "pool", "pseudonym", "cohort", "gender", "treatment"))
+
+#df<-as.data.frame(disseq.integrated.test@meta.data)
+#write.csv(df, file = "/Users/samnayler/Desktop/md.csv")
+
+#vnmd1<-VlnPlot(disseq.integrated.test, features ="percent.mito", group.by = "hash.ID")
+#vnmd2<-VlnPlot(disseq.integrated.test, features ="nCount_RNA", group.by = "hash.ID")
+#vnmd3<-VlnPlot(disseq.integrated.test, features ="nFeature_RNA", group.by = "hash.ID")
+
+#vnmds<-plot_grid(vnmd1, vnmd2, vnmd3, nrow = 3)
+#vnmds
+
+#Remember that multiple lines have the same BCs so plot by Pseudonym
+#vnmd4<-VlnPlot(disseq.integrated.test, features ="percent.mito", group.by = "pseudonym")
+#vnmd5<-VlnPlot(disseq.integrated.test, features ="nCount_RNA", group.by = "pseudonym")
+#vnmd6<-VlnPlot(disseq.integrated.test, features ="nFeature_RNA", group.by = "pseudonym")
+
+#vnmds2<-plot_grid(vnmd4, vnmd5, vnmd6, nrow = 3)
+#vnmds2
+
+#vnmd7<-VlnPlot(disseq.integrated.test, features ="percent.mito", group.by = "pool")
+#vnmd8<-VlnPlot(disseq.integrated.test, features ="nCount_RNA", group.by = "pool")
+#vnmd9<-VlnPlot(disseq.integrated.test, features ="nFeature_RNA", group.by = "pool")
+
+#vnmds3<-plot_grid(vnmd7, vnmd8, vnmd9, nrow = 3)
+
+#vnmds3
+```
+
+```{r chunk for metadata examination}
+
+#colnames(disseq.integrated.test@meta.data)
+#a<-VlnPlot(disseq.integrated.test, features ="percent.mito", group.by = "hash.ID")
+#I could subset this object to filter "Doublets" from the "hash.ID"
+#b<-VlnPlot(disseq.integrated.test, features ="percent.mito", group.by = "HTO_classification")
+#I could subset this object to filter Doublets from the "HTO_classification" position
+#c<-VlnPlot(disseq.integrated.test, features ="percent.mito", group.by = "HTO_classification.global")
+#HTO_classification.global is only singlets
+
+#plot_grid(a,b,c, nrow = 3, labels = c("hash.ID", "HTO_classification", "HTO_classification.global"))
+
+```
+
+
+```{r make an integrated object for AUSSIE cohort}
+#I would need to reload all the objects and set up the metadata but not yet run the SCT normalization
+#START INTEGRATED WORKFLOW HERE
+#NEED TO COME BACK TO METADATA TOMORROW
+
+#EDIT ALL BELOW
+head(NAY_789195_GX08@meta.data)
+dim(NAY_789195_GX08@meta.data)
+
+head(NAY_789195_GX20@meta.data)
+dim(NAY_789195_GX20@meta.data)
+
+head(NAY_789195_GX55@meta.data)
+dim(NAY_789195_GX55@meta.data)
+
+head(NAY_789195_GX67@meta.data)
+dim(NAY_789195_GX67@meta.data)
+
+
+#Make sure to update to dev
+#devtools::install_github(repo = "satijalab/seurat", ref = "develop")
+#Note only run thise after reading in the non-normalized objects
+
+disseq.list.aus <- c(NAY_789195_GX08, NAY_789195_GX20, NAY_789195_GX55, NAY_789195_GX67)
+#Do subsets here
+
+for (i in 1:length(disseq.list.aus)) {
+   disseq.list.aus[[i]] <- SCTransform(disseq.list.aus[[i]], verbose = FALSE)
+}
+
+disseq.features.aus <- SelectIntegrationFeatures(object.list = disseq.list.aus, nfeatures = 3000)
+options(future.globals.maxSize = 4000 * 1024^2)
+
+disseq.list.aus<- PrepSCTIntegration(object.list = disseq.list.aus, anchor.features = disseq.features, verbose = FALSE)
+
+disseq.anchors.aus <- FindIntegrationAnchors(object.list = disseq.list.aus, normalization.method = "SCT", anchor.features = disseq.features, verbose = FALSE)
+
+disseq.integrated.aus <- IntegrateData(anchorset = disseq.anchors.aus, normalization.method = "SCT", verbose = FALSE)
+
+
+disseq.integrated.aus <- RunPCA(disseq.integrated.test, verbose = FALSE)
+disseq.integrated.aus <- RunUMAP(disseq.integrated.test, dims = 1:30)
+
+#Make a pipe function here for iterating through colnames(disseq.integrated.test@meta.data)
+a<-DimPlot(disseq.integrated.aus, group.by = c("line"), combine = FALSE)
+b<-DimPlot(disseq.integrated.aus, group.by = c("differentiation"), combine = FALSE)
+c<-DimPlot(disseq.integrated.aus, group.by = c("genotype"), combine = FALSE)
+d<-DimPlot(disseq.integrated.aus, group.by = c("hash.ID"), combine = FALSE)
+e<-DimPlot(disseq.integrated.aus, group.by = c("age"), combine = FALSE)
+f<-DimPlot(disseq.integrated.aus, group.by = c("lineclone"), combine = FALSE)
+g<-DimPlot(disseq.integrated.aus, group.by = c("nCount_RNA"), combine = FALSE)
+h<-DimPlot(disseq.integrated.aus, group.by = c("pool"), combine = FALSE)
+i<-DimPlot(disseq.integrated.aus, group.by = c("pseudonym"), combine = FALSE)
+j<-DimPlot(disseq.integrated.aus, group.by = c("cohort"), combine = FALSE)
+k<-DimPlot(disseq.integrated.aus, group.by = c("gender"), combine = FALSE)
+l<-DimPlot(disseq.integrated.aus, group.by = c("treatment"), combine = FALSE)
+
+qcplots<-plot_grid(a,b,c, nrow = 3)
+
+#df<-as.data.frame(disseq.integrated.aus@meta.data)
+#write.csv(df, file = "/Users/samnayler/Desktop/md.csv")
+
+vnmd1<-VlnPlot(disseq.integrated.aus, features ="percent.mito", group.by = "hash.ID")
+vnmd2<-VlnPlot(disseq.integrated.aus, features ="nCount_RNA", group.by = "hash.ID")
+vnmd3<-VlnPlot(disseq.integrated.aus, features ="nFeature_RNA", group.by = "hash.ID")
+
+vnmds<-plot_grid(vnmd1, vnmd2, vnmd3, nrow = 3)
+vnmds
+
+#Remember that multiple lines have the same BCs so plot by Pseudonym
+vnmd4<-VlnPlot(disseq.integrated.aus, features ="percent.mito", group.by = "pseudonym")
+vnmd5<-VlnPlot(disseq.integrated.aus, features ="nCount_RNA", group.by = "pseudonym")
+vnmd6<-VlnPlot(disseq.integrated.aus, features ="nFeature_RNA", group.by = "pseudonym")
+
+vnmds2<-plot_grid(vnmd4, vnmd5, vnmd6, nrow = 3)
+vnmds2
+
+vnmd7<-VlnPlot(disseq.integrated.aus, features ="percent.mito", group.by = "pool")
+vnmd8<-VlnPlot(disseq.integrated.aus, features ="nCount_RNA", group.by = "pool")
+vnmd9<-VlnPlot(disseq.integrated.aus, features ="nFeature_RNA", group.by = "pool")
+
+vnmds3<-plot_grid(vnmd7, vnmd8, vnmd9, nrow = 3)
+
+vnmds3
+
+
+
+```
+
+
+
+```{r full integration workflow}
+#Make sure to update to dev
+#devtools::install_github(repo = "satijalab/seurat", ref = "develop")
+#Note only run thise after reading in the non-normalized objects
+
+disseq.list <- c(NAY8045A1, NAY8045A2, NAY_789195_GX08, NAY_789195_GX20, NAY_789195_GX55, NAY_789195_GX67)
+
+
+for (i in 1:length(disseq.list)) {
+   disseq.list[[i]] <- SCTransform(disseq.list[[i]], verbose = FALSE)
+}
+
+disseq.features <- SelectIntegrationFeatures(object.list = disseq.list, nfeatures = 3000)
+options(future.globals.maxSize = 4000 * 1024^2)
+
+disseq.list<- PrepSCTIntegration(object.list = disseq.list, anchor.features = disseq.features, verbose = FALSE)
+
+disseq.anchors <- FindIntegrationAnchors(object.list = disseq.list, normalization.method = "SCT", anchor.features = disseq.features, verbose = FALSE)
+
+disseq.integrated <- IntegrateData(anchorset = disseq.anchors, normalization.method = "SCT", verbose = FALSE)
+
+
+disseq.integrated <- RunPCA(disseq.integrated, verbose = FALSE)
+disseq.integrated <- RunUMAP(disseq.integrated, dims = 1:30)
+
+DimPlot(disseq.integrated, group.by = c("line"), combine = FALSE)
+DimPlot(disseq.integrated, group.by = c("hash.ID"), combine = FALSE)
+DimPlot(disseq.integrated, group.by = c("age"), combine = FALSE)
+DimPlot(disseq.integrated, group.by = c("lineclone"), combine = FALSE)
+DimPlot(disseq.integrated, group.by = c("genotype"), combine = FALSE)
+DimPlot(disseq.integrated, group.by = c("pool"), combine = FALSE)
+DimPlot(disseq.integrated, group.by = c("pseudonym"), combine = FALSE)
+#Note Pseudonym is spelled incorrectly in some of the metadata, need to correct. Also why do I have age.y etc?
+DimPlot(disseq.integrated, group.by = c("line.x"), combine = FALSE)
+DimPlot(disseq.integrated, group.by = c("line"), combine = FALSE)
+
+colnames(disseq.integrated@meta.data)
+
+#Some of the metadata columns have come out with a .x after. Why?
+#Seems to be flagged with NAs
+dsimd<-as.data.frame(disseq.integrated@meta.data)
+write.csv(dsimd, file = "/Users/samnayler/Desktop/dsimd.csv")
+#There are a bunch of NAs in places they shouldnt be
+
+md1<-DimPlot(disseq.integrated, group.by = c("hash.ID"), combine = FALSE)
+md2<-DimPlot(disseq.integrated, group.by = c("hash.ID"), combine = FALSE)
+
+
+
+
+
+vnmd1<-VlnPlot(disseq.integrated, features ="percent.mito", group.by = "hash.ID")
+vnmd2<-VlnPlot(disseq.integrated, features ="nCount_RNA", group.by = "hash.ID")
+vnmd3<-VlnPlot(disseq.integrated, features ="nFeature_RNA", group.by = "hash.ID")
+
+vnmds<-plot_grid(vnmd1, vnmd2, vnmd3, nrow = 3)
+
+
+#Remember that multiple lines have the same BCs so plot by Pseudonym
+vnmd4<-VlnPlot(disseq.integrated, features ="percent.mito", group.by = "pseudonym")
+vnmd5<-VlnPlot(disseq.integrated, features ="nCount_RNA", group.by = "pseudonym")
+vnmd6<-VlnPlot(disseq.integrated, features ="nFeature_RNA", group.by = "pseudonym")
+
+vnmds2<-plot_grid(vnmd4, vnmd5, vnmd6, nrow = 3)
+
+
+vnmd7<-VlnPlot(disseq.integrated, features ="", group.by = "pool")
+vnmd8<-VlnPlot(disseq.integrated, features ="nCount_RNA", group.by = "pool")
+vnmd9<-VlnPlot(disseq.integrated, features ="nFeature_RNA", group.by = "pool")
+
+vnmds3<-plot_grid(vnmd7, vnmd8, vnmd9, nrow = 3)
+
+####STOPPED HERE FOR THE DAY THURS
+#Should resume here using rbind to concatenate metadata. Also the next goal should be annotating what lines are missing/low yield, with particular focus on crispr/parental lines.
+
+
+
+
+plots <- DimPlot(disseq.integrated, group.by = c("line", "celltype"), combine = FALSE)
+
+plots <- lapply(X = plots, FUN = function(x) x + theme(legend.position = "top") + guides(color = guide_legend(nrow = 3, 
+    byrow = TRUE, override.aes = list(size = 3))))
+CombinePlots(plots)
+
+
+
+
+
+
+```
+
+```{r temporary disseq clustree}
+#Here I want to  have a quick look at clustering resolution in disseq.integrated
+#Errors here;
+#Provided graph.name not present in Seurat object
+#Try FindNeighbours first
+disseq.integrated.test<-FindNeighbors(object = disseq.integrated.test)
+disseq.integrated.test<-FindClusters(disseq.integrated.test, resolution = 0.1)
+
+disseq.integrated.test<-FindClusters(disseq.integrated.test, resolution = 0.2)
+disseq.integrated.test<-FindClusters(disseq.integrated.test, resolution = 0.3)
+disseq.integrated.test<-FindClusters(disseq.integrated.test, resolution = 0.4)
+disseq.integrated.test<-FindClusters(disseq.integrated.test, resolution = 0.5)
+disseq.integrated.test<-FindClusters(disseq.integrated.test, resolution = 0.6)
+disseq.integrated.test<-FindClusters(disseq.integrated.test, resolution = 0.7)
+disseq.integrated.test<-FindClusters(disseq.integrated.test, resolution = 0.8)
+disseq.integrated.test<-FindClusters(disseq.integrated.test, resolution = 0.9)
+disseq.integrated.test<-FindClusters(disseq.integrated.test, resolution = 1.0)
+
+
+clusts0.1<-disseq.integrated.test@meta.data$integrated_snn_res.0.1
+clusts0.2<-disseq.integrated.test@meta.data$integrated_snn_res.0.2
+clusts0.3<-disseq.integrated.test@meta.data$integrated_snn_res.0.3
+clusts0.4<-disseq.integrated.test@meta.data$integrated_snn_res.0.4
+clusts0.5<-disseq.integrated.test@meta.data$integrated_snn_res.0.5
+clusts0.6<-disseq.integrated.test@meta.data$integrated_snn_res.0.6
+clusts0.7<-disseq.integrated.test@meta.data$integrated_snn_res.0.7
+clusts0.8<-disseq.integrated.test@meta.data$integrated_snn_res.0.8
+clusts0.9<-disseq.integrated.test@meta.data$integrated_snn_res.0.9
+clusts1.0<-disseq.integrated.test@meta.data$integrated_snn_res.1
+
+
+
+clusts<-data.frame(clusts0.1, clusts0.2, clusts0.3, clusts0.4,clusts0.5,clusts0.6,clusts0.7,clusts0.8,clusts0.9,clusts1.0)
+clustree(clusts, prefix = "clusts")
+
+res1<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.1", label = TRUE) + NoLegend()
+res2<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.2", label = TRUE)  + NoLegend()
+res3<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.3", label = TRUE)  + NoLegend()
+res4<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.4", label = TRUE)  + NoLegend()
+res5<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.5", label = TRUE)  + NoLegend()
+res6<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.6", label = TRUE)  + NoLegend()
+res7<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.7", label = TRUE)  + NoLegend()
+res8<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.8", label = TRUE)  + NoLegend()
+res9<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.9", label = TRUE)  + NoLegend()
+res10<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.1", label = TRUE)  + NoLegend()
+
+#allres<-plot_grid(res1, res2, res3, res4, res5, res6, res7, res8, res9, res10)
+allres<-plot_grid(res1, res2, res3, res4, res5, res6, res7, res8, res9, res10, nrow = 2)
+
+#Lets start with 0.4 as we have 12 populations (similar to pilot study)
+```
+
+```{r vis markers}
+
+gene <- "DYNLRB2"
+#g<-VlnPlot(NAY8045A1_b, features = gene, group.by ="genotype")
+#h<-VlnPlot(NAY8045A1_b, features = gene, group.by ="hash.ID")
+#plot_grid(g,h)
+
+
+DefaultAssay(NAY8045A1) <- "SCT"
+
+carterlist<-c("SPARC", "ID1", "ID3", "MSX1", "TMEM163", "MEIS2", "LHX9", "GREM2", "MFAP4", "NEUROD1", "ATOH1", "BARHL1", "PPP2R2C", "LHX5", "LHX1", "GAD2", "GAD1", "FOXP2", "SLC32A1", "CALB1", "PAX2", "LBX1", "HOPX", "TIMP4", "NDRG2", "GDF10", "SOX9", "SOX10", "SLC1A3", "SPARCL1", "VTN", "BGN", "IGFBP7", "DYNLRB2", "DCN", "COL3A1", "COL1A2", "KRT18", "COLEC12", "MATN4", "ISL1", "SNCG", "DLK1")
+
+DotPlot(NAY8045A1, features = carterlist, dot.scale = 8) + RotatedAxis()
+
+samlist<-c("PCP4", "HTR2C", "SERPINF1", "IGF1", "TUBB2B", "TUBA1A", "MAPT", "VAMP2", "RAB3A", "NSG1", "STMN2", "SPARCL1", "ANXA2", "TPBG", "IGFBP5", "WNT2B", "PTN", "GPM6B", "C1orf61", "VIM", "CAV1", "GDF10", "PKMYT1", "TK1", "RRM2", "NHLH1", "CNTN2", "DAPL1", "ATOH1", "TCF4", "MIAT", "TRIB3", "HSPA9", "DDIT3", "NUPR1", "EIF1", "KCNG1", "RSPO1", "RSPO2", "CNTNAP2", "MASP1", "PLS3", "ASPM", "TTK", "DLGAP5", "CENPA", "TROAP", "MKI67", "TCF7L2", "TMSB4X", "NEUROG2", "DPYSL3", "NNAT", "OLIG3", "MIR4435-2HG", "HIST1H4H", "HIST1H2AC", "GADD45B", "HIST1H2AE", "C11orf88", "ARMC3", "CAPSL", "CFAP126", "MAP3K19", "ANKRD66")
+
+DotPlot(NAY8045A1, features = samlist, dot.scale = 8) + RotatedAxis()
+
+VlnPlot (NAY8045A1, features = "KIRREL2", pt.size = 0.2, ncol =2)
+
+```
+
+```{r clustree}
+#Here I want to go back and re-examine clustering conditions to decide on an optimal clustering resolution
+NAY8045A1.1<-FindClusters(NAY8045A1, resolution = 0.1)
+NAY8045A1.2<-FindClusters(NAY8045A1, resolution = 0.2)
+NAY8045A1.3<-FindClusters(NAY8045A1, resolution = 0.3)
+NAY8045A1.4<-FindClusters(NAY8045A1, resolution = 0.4)
+NAY8045A1.5<-FindClusters(NAY8045A1, resolution = 0.5)
+NAY8045A1.6<-FindClusters(NAY8045A1, resolution = 0.6)
+NAY8045A1.7<-FindClusters(NAY8045A1, resolution = 0.7)
+NAY8045A1.8<-FindClusters(NAY8045A1, resolution = 0.8)
+NAY8045A1.9<-FindClusters(NAY8045A1, resolution = 0.9)
+NAY8045A1.10<-FindClusters(NAY8045A1, resolution = 1.0)
+
+clusts0.1<-NAY8045A1.1@meta.data$SCT_snn_res.0.1
+clusts0.2<-NAY8045A1.2@meta.data$SCT_snn_res.0.2
+clusts0.3<-NAY8045A1.3@meta.data$SCT_snn_res.0.3
+clusts0.4<-NAY8045A1.4@meta.data$SCT_snn_res.0.4
+clusts0.5<-NAY8045A1.5@meta.data$SCT_snn_res.0.5
+clusts0.6<-NAY8045A1.6@meta.data$SCT_snn_res.0.6
+clusts0.7<-NAY8045A1.7@meta.data$SCT_snn_res.0.7
+clusts0.8<-NAY8045A1.8@meta.data$SCT_snn_res.0.8
+clusts0.9<-NAY8045A1.9@meta.data$SCT_snn_res.0.9
+clusts1.0<-NAY8045A1.10@meta.data$SCT_snn_res.1
+
+
+clusts<-data.frame(clusts0.1, clusts0.2, clusts0.3, clusts0.4,clusts0.5,clusts0.6,clusts0.7,clusts0.8,clusts0.9,clusts1.0)
+clustree(clusts, prefix = "clusts")
+
+res1<-DimPlot(NAY8045A1.1, reduction = "umap", group.by = "SCT_snn_res.0.1", label = TRUE)
+res2<-DimPlot(NAY8045A1.2, reduction = "umap", group.by = "SCT_snn_res.0.2", label = TRUE)
+res3<-DimPlot(NAY8045A1.3, reduction = "umap", group.by = "SCT_snn_res.0.3", label = TRUE)
+res4<-DimPlot(NAY8045A1.4, reduction = "umap", group.by = "SCT_snn_res.0.4", label = TRUE)
+res5<-DimPlot(NAY8045A1.5, reduction = "umap", group.by = "SCT_snn_res.0.5", label = TRUE)
+res6<-DimPlot(NAY8045A1.6, reduction = "umap", group.by = "SCT_snn_res.0.6", label = TRUE)
+res7<-DimPlot(NAY8045A1.7, reduction = "umap", group.by = "SCT_snn_res.0.7", label = TRUE)
+res8<-DimPlot(NAY8045A1.8, reduction = "umap", group.by = "SCT_snn_res.0.8", label = TRUE)
+res9<-DimPlot(NAY8045A1.9, reduction = "umap", group.by = "SCT_snn_res.0.9", label = TRUE)
+res10<-DimPlot(NAY8045A1.10, reduction = "umap", group.by = "SCT_snn_res.1", label = TRUE)
+
+#allres<-plot_grid(res1, res2, res3, res4, res5, res6, res7, res8, res9, res10)
+allres<-plot_grid(res1, res2, res3, res4, res5, res6, res7, res8, res9, res10, nrow = 2)
+
+```
+
+
+```{r findmarkers in british cohort pop0 at res 0.4 12 pops}
+
+#disseq.integrated.test at a resolution of 0.4 looks like a good place to start
+#Could try and write a for loop here. Establish base code first
+#PLAY WITH LOGFC AND MINPCT
+
+#res4<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.4", label = TRUE)  + NoLegend()
+
+Idents(disseq.integrated.test) <-"integrated_snn_res.0.4"
+
+brit_04res_12pop_Pop0markers <- FindMarkers (disseq.integrated.test, ident.1 = "0", ident.2 = NULL, only.pos = TRUE, logfc.threshold = 3, mic.pct = 0.25)
+
+head(brit_04res_12pop_Pop0markers)
+Pop0<-rownames(brit_04res_12pop_Pop0markers)
+
+
+FeaturePlot(disseq.integrated.test, features = Pop0[1:12], max.cutoff = 3, cols = c("grey", "red"), pt.size = 0.1)
+
+P0 <- WhichCells(disseq.integrated.test, idents = "0")
+DimPlot(disseq.integrated.test, group.by =  'integrated_snn_res.0.4', pt.size = 0.1, label= TRUE, cells.highlight = (P0))
+
+
+a<-VlnPlot(disseq.integrated.test, features = Pop0[1], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+b<-VlnPlot(disseq.integrated.test, features = Pop0[2], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+c<-VlnPlot(disseq.integrated.test, features = Pop0[3], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+d<-VlnPlot(disseq.integrated.test, features = Pop0[4], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+e<-VlnPlot(disseq.integrated.test, features = Pop0[5], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+f<-VlnPlot(disseq.integrated.test, features = Pop0[6], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+
+markers0<-plot_grid(a,b,c,d,e,f, nrow = 3)
+#This doesnt quite look right
+#Validate with feature plots and tune up by adjusting logfc.thresholds
+
+
+```
+
+```{r findmarkers in british cohort pop1 at res 0.4 12 pops}
+
+#disseq.integrated.test at a resolution of 0.4 looks like a good place to start
+#Could try and write a for loop here. Establish base code first
+
+#res4<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.4", label = TRUE)  + NoLegend()
+
+Idents(disseq.integrated.test) <-"integrated_snn_res.0.4"
+
+brit_04res_12pop_Pop1markers <- FindMarkers (disseq.integrated.test, ident.1 = "1", ident.2 = NULL, only.pos = TRUE, logfc.threshold = 3, mic.pct = 0.25)
+
+head(brit_04res_12pop_Pop1markers)
+Pop1<-rownames(brit_04res_12pop_Pop1markers)
+
+
+FeaturePlot(disseq.integrated.test, features = Pop1[1:12], max.cutoff = 3, cols = c("grey", "red"), pt.size = 0.1)
+
+P1 <- WhichCells(disseq.integrated.test, idents = "1")
+DimPlot(disseq.integrated.test, group.by =  'integrated_snn_res.0.4', pt.size = 0.1, label= TRUE, cells.highlight = (P1))
+
+
+a<-VlnPlot(disseq.integrated.test, features = Pop1[1], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+b<-VlnPlot(disseq.integrated.test, features = Pop1[2], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+c<-VlnPlot(disseq.integrated.test, features = Pop1[3], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+d<-VlnPlot(disseq.integrated.test, features = Pop1[4], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+e<-VlnPlot(disseq.integrated.test, features = Pop1[5], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+f<-VlnPlot(disseq.integrated.test, features = Pop1[6], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+
+markers1<-plot_grid(a,b,c,d,e,f, nrow = 3)
+#This doesnt quite look right
+#Validate with feature plots and tune up by adjusting logfc.thresholds
+
+
+```
+
+```{r findmarkers in british cohort pop2 at res 0.4 12 pops}
+
+
+#res4<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.4", label = TRUE)  + NoLegend()
+
+#Idents(disseq.integrated.test) <-"integrated_snn_res.0.4"
+
+brit_04res_12pop_Pop2markers <- FindMarkers (disseq.integrated.test, ident.1 = "2", ident.2 = NULL, only.pos = TRUE, logfc.threshold = 3, mic.pct = 0.25)
+
+head(brit_04res_12pop_Pop2markers)
+Pop2<-rownames(brit_04res_12pop_Pop2markers)
+
+
+FeaturePlot(disseq.integrated.test, features = Pop2[1:12], max.cutoff = 3, cols = c("grey", "red"), pt.size = 0.1)
+
+P2 <- WhichCells(disseq.integrated.test, idents = "2")
+DimPlot(disseq.integrated.test, group.by =  'integrated_snn_res.0.4', pt.size = 0.1, label= TRUE, cells.highlight = (P2))
+
+
+a<-VlnPlot(disseq.integrated.test, features = Pop2[1], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+b<-VlnPlot(disseq.integrated.test, features = Pop2[2], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+c<-VlnPlot(disseq.integrated.test, features = Pop2[3], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+d<-VlnPlot(disseq.integrated.test, features = Pop2[4], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+e<-VlnPlot(disseq.integrated.test, features = Pop2[5], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+f<-VlnPlot(disseq.integrated.test, features = Pop2[6], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+
+markers2<-plot_grid(a,b,c,d,e,f, nrow = 3)
+
+
+#STOPPED HERE THURS. RESUME WITH OTHER POPULATIONS AND RESOLUTIONS
+```
+
+```{r findmarkers in british cohort pop3 at res 0.4 12 pops}
+
+
+#res4<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.4", label = TRUE)  + NoLegend()
+
+#Idents(disseq.integrated.test) <-"integrated_snn_res.0.4"
+
+brit_04res_12pop_Pop3markers <- FindMarkers (disseq.integrated.test, ident.1 = "3", ident.2 = NULL, only.pos = TRUE, logfc.threshold = 3, mic.pct = 0.25)
+
+head(brit_04res_12pop_Pop3markers)
+Pop3<-rownames(brit_04res_12pop_Pop3markers)
+
+
+FeaturePlot(disseq.integrated.test, features = Pop3[1:12], max.cutoff = 3, cols = c("grey", "red"), pt.size = 0.1)
+
+P3 <- WhichCells(disseq.integrated.test, idents = "3")
+DimPlot(disseq.integrated.test, group.by =  'integrated_snn_res.0.4', pt.size = 0.1, label= TRUE, cells.highlight = (P3))
+
+
+a<-VlnPlot(disseq.integrated.test, features = Pop3[1], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+b<-VlnPlot(disseq.integrated.test, features = Pop3[2], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+c<-VlnPlot(disseq.integrated.test, features = Pop3[3], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+d<-VlnPlot(disseq.integrated.test, features = Pop3[4], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+e<-VlnPlot(disseq.integrated.test, features = Pop3[5], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+f<-VlnPlot(disseq.integrated.test, features = Pop3[6], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+
+markers3<-plot_grid(a,b,c,d,e,f, nrow = 3)
+
+```
+
+```{r findmarkers in british cohort pop4 at res 0.4 12 pops}
+
+
+#res4<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.4", label = TRUE)  + NoLegend()
+
+#Idents(disseq.integrated.test) <-"integrated_snn_res.0.4"
+
+brit_04res_12pop_Pop4markers <- FindMarkers (disseq.integrated.test, ident.1 = "4", ident.2 = NULL, only.pos = TRUE, logfc.threshold = 3, mic.pct = 0.25)
+
+head(brit_04res_12pop_Pop4markers)
+Pop4<-rownames(brit_04res_12pop_Pop4markers)
+
+
+FeaturePlot(disseq.integrated.test, features = Pop4[1:12], max.cutoff = 3, cols = c("grey", "red"), pt.size = 0.1)
+
+P4 <- WhichCells(disseq.integrated.test, idents = "4")
+DimPlot(disseq.integrated.test, group.by =  'integrated_snn_res.0.4', pt.size = 0.1, label= TRUE, cells.highlight = (P4))
+
+
+a<-VlnPlot(disseq.integrated.test, features = Pop4[1], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+b<-VlnPlot(disseq.integrated.test, features = Pop4[2], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+
+
+markers4<-plot_grid(a,b, nrow = 3)
+
+
+```
+
+```{r findmarkers in british cohort pop5 at res 0.4 12 pops}
+
+
+#res4<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.4", label = TRUE)  + NoLegend()
+
+#Idents(disseq.integrated.test) <-"integrated_snn_res.0.4"
+
+brit_04res_12pop_Pop5markers <- FindMarkers (disseq.integrated.test, ident.1 = "5", ident.2 = NULL, only.pos = TRUE, logfc.threshold = 3, mic.pct = 0.25)
+
+head(brit_04res_12pop_Pop5markers)
+Pop5<-rownames(brit_04res_12pop_Pop5markers)
+
+
+FeaturePlot(disseq.integrated.test, features = Pop5[1:12], max.cutoff = 3, cols = c("grey", "red"), pt.size = 0.1)
+
+P5 <- WhichCells(disseq.integrated.test, idents = "5")
+DimPlot(disseq.integrated.test, group.by =  'integrated_snn_res.0.4', pt.size = 0.1, label= TRUE, cells.highlight = (P5))
+
+
+a<-VlnPlot(disseq.integrated.test, features = Pop5[1], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+b<-VlnPlot(disseq.integrated.test, features = Pop5[2], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+c<-VlnPlot(disseq.integrated.test, features = Pop5[3], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+d<-VlnPlot(disseq.integrated.test, features = Pop5[4], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+e<-VlnPlot(disseq.integrated.test, features = Pop5[5], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+f<-VlnPlot(disseq.integrated.test, features = Pop5[6], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+
+markers5<-plot_grid(a,b,c,d,e,f, nrow = 3)
+
+
+```
+
+```{r findmarkers in british cohort pop6 at res 0.4 12 pops}
+
+
+#res4<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.4", label = TRUE)  + NoLegend()
+
+#Idents(disseq.integrated.test) <-"integrated_snn_res.0.4"
+
+brit_04res_12pop_Pop6markers <- FindMarkers (disseq.integrated.test, ident.1 = "6", ident.2 = NULL, only.pos = TRUE, logfc.threshold = 3, mic.pct = 0.25)
+
+head(brit_04res_12pop_Pop6markers)
+Pop6<-rownames(brit_04res_12pop_Pop6markers)
+
+
+FeaturePlot(disseq.integrated.test, features = Pop6[1:12], max.cutoff = 3, cols = c("grey", "red"), pt.size = 0.1)
+
+P6 <- WhichCells(disseq.integrated.test, idents = "6")
+DimPlot(disseq.integrated.test, group.by =  'integrated_snn_res.0.4', pt.size = 0.1, label= TRUE, cells.highlight = (P6))
+
+
+a<-VlnPlot(disseq.integrated.test, features = Pop6[1], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+b<-VlnPlot(disseq.integrated.test, features = Pop6[2], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+c<-VlnPlot(disseq.integrated.test, features = Pop6[3], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+d<-VlnPlot(disseq.integrated.test, features = Pop6[4], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+e<-VlnPlot(disseq.integrated.test, features = Pop6[5], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+f<-VlnPlot(disseq.integrated.test, features = Pop6[6], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+
+markers6<-plot_grid(a,b,c,d,e,f, nrow = 3)
+
+
+```
+
+```{r findmarkers in british cohort pop7 at res 0.4 12 pops}
+
+
+#res4<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.4", label = TRUE)  + NoLegend()
+
+#Idents(disseq.integrated.test) <-"integrated_snn_res.0.4"
+
+brit_04res_12pop_Pop7markers <- FindMarkers (disseq.integrated.test, ident.1 = "7", ident.2 = NULL, only.pos = TRUE, logfc.threshold = 3, mic.pct = 0.25)
+
+head(brit_04res_12pop_Pop7markers)
+Pop7<-rownames(brit_04res_12pop_Pop7markers)
+
+
+FeaturePlot(disseq.integrated.test, features = Pop7[1:12], max.cutoff = 3, cols = c("grey", "red"), pt.size = 0.1)
+
+P7 <- WhichCells(disseq.integrated.test, idents = "7")
+DimPlot(disseq.integrated.test, group.by =  'integrated_snn_res.0.4', pt.size = 0.1, label= TRUE, cells.highlight = (P7))
+
+
+a<-VlnPlot(disseq.integrated.test, features = Pop7[1], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+b<-VlnPlot(disseq.integrated.test, features = Pop7[2], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+c<-VlnPlot(disseq.integrated.test, features = Pop7[3], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+d<-VlnPlot(disseq.integrated.test, features = Pop7[4], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+e<-VlnPlot(disseq.integrated.test, features = Pop7[5], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+f<-VlnPlot(disseq.integrated.test, features = Pop7[6], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+
+markers7<-plot_grid(a,b,c,d,e,f, nrow = 3)
+
+
+```
+
+```{r findmarkers in british cohort pop8 at res 0.4 12 pops}
+
+
+#res4<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.4", label = TRUE)  + NoLegend()
+
+#Idents(disseq.integrated.test) <-"integrated_snn_res.0.4"
+
+brit_04res_12pop_Pop8markers <- FindMarkers (disseq.integrated.test, ident.1 = "8", ident.2 = NULL, only.pos = TRUE, logfc.threshold = 3, mic.pct = 0.25)
+
+head(brit_04res_12pop_Pop8markers)
+Pop8<-rownames(brit_04res_12pop_Pop8markers)
+
+
+FeaturePlot(disseq.integrated.test, features = Pop8[1:12], max.cutoff = 3, cols = c("grey", "red"), pt.size = 0.1)
+
+P8 <- WhichCells(disseq.integrated.test, idents = "8")
+DimPlot(disseq.integrated.test, group.by =  'integrated_snn_res.0.4', pt.size = 0.1, label= TRUE, cells.highlight = (P8))
+
+
+a<-VlnPlot(disseq.integrated.test, features = Pop8[1], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+b<-VlnPlot(disseq.integrated.test, features = Pop8[2], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+c<-VlnPlot(disseq.integrated.test, features = Pop8[3], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+d<-VlnPlot(disseq.integrated.test, features = Pop8[4], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+e<-VlnPlot(disseq.integrated.test, features = Pop8[5], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+f<-VlnPlot(disseq.integrated.test, features = Pop8[6], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+
+markers8<-plot_grid(a,b,c,d,e,f, nrow = 3)
+
+
+```
+
+```{r findmarkers in british cohort pop9 at res 0.4 12 pops}
+
+
+#res4<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.4", label = TRUE)  + NoLegend()
+
+#Idents(disseq.integrated.test) <-"integrated_snn_res.0.4"
+
+brit_04res_12pop_Pop9markers <- FindMarkers (disseq.integrated.test, ident.1 = "9", ident.2 = NULL, only.pos = TRUE, logfc.threshold = 3, mic.pct = 0.25)
+
+head(brit_04res_12pop_Pop9markers)
+Pop9<-rownames(brit_04res_12pop_Pop9markers)
+
+
+FeaturePlot(disseq.integrated.test, features = Pop9[1:12], max.cutoff = 3, cols = c("grey", "red"), pt.size = 0.1)
+
+P9 <- WhichCells(disseq.integrated.test, idents = "9")
+DimPlot(disseq.integrated.test, group.by =  'integrated_snn_res.0.4', pt.size = 0.1, label= TRUE, cells.highlight = (P9))
+
+
+a<-VlnPlot(disseq.integrated.test, features = Pop9[1], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+b<-VlnPlot(disseq.integrated.test, features = Pop9[2], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+c<-VlnPlot(disseq.integrated.test, features = Pop9[3], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+d<-VlnPlot(disseq.integrated.test, features = Pop9[4], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+e<-VlnPlot(disseq.integrated.test, features = Pop9[5], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+f<-VlnPlot(disseq.integrated.test, features = Pop9[6], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+
+markers9<-plot_grid(a,b,c,d,e,f, nrow = 3)
+
+
+```
+
+
+```{r findmarkers in british cohort pop10 at res 0.4 12 pops}
+
+
+#res4<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.4", label = TRUE)  + NoLegend()
+
+#Idents(disseq.integrated.test) <-"integrated_snn_res.0.4"
+
+brit_04res_12pop_Pop10markers <- FindMarkers (disseq.integrated.test, ident.1 = "10", ident.2 = NULL, only.pos = TRUE, logfc.threshold = 3, mic.pct = 0.25)
+
+head(brit_04res_12pop_Pop10markers)
+Pop10<-rownames(brit_04res_12pop_Pop10markers)
+
+
+FeaturePlot(disseq.integrated.test, features = Pop10[1:12], max.cutoff = 3, cols = c("grey", "red"), pt.size = 0.1)
+
+P10 <- WhichCells(disseq.integrated.test, idents = "10")
+DimPlot(disseq.integrated.test, group.by =  'integrated_snn_res.0.4', pt.size = 0.1, label= TRUE, cells.highlight = (P10))
+
+
+a<-VlnPlot(disseq.integrated.test, features = Pop10[1], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+b<-VlnPlot(disseq.integrated.test, features = Pop10[2], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+c<-VlnPlot(disseq.integrated.test, features = Pop10[3], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+d<-VlnPlot(disseq.integrated.test, features = Pop10[4], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+e<-VlnPlot(disseq.integrated.test, features = Pop10[5], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+f<-VlnPlot(disseq.integrated.test, features = Pop10[6], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+
+markers10<-plot_grid(a,b,c,d,e,f, nrow = 3)
+
+
+```
+
+```{r findmarkers in british cohort pop11 at res 0.4 12 pops}
+
+
+#res4<-DimPlot(disseq.integrated.test, reduction = "umap", group.by = "integrated_snn_res.0.4", label = TRUE)  + NoLegend()
+
+#Idents(disseq.integrated.test) <-"integrated_snn_res.0.4"
+
+brit_04res_12pop_Pop11markers <- FindMarkers (disseq.integrated.test, ident.1 = "11", ident.2 = NULL, only.pos = TRUE, logfc.threshold = 3, mic.pct = 0.25)
+
+head(brit_04res_12pop_Pop11markers)
+Pop11<-rownames(brit_04res_12pop_Pop11markers)
+
+
+FeaturePlot(disseq.integrated.test, features = Pop11[1:12], max.cutoff = 3, cols = c("grey", "red"), pt.size = 0.1)
+
+P11 <- WhichCells(disseq.integrated.test, idents = "11")
+DimPlot(disseq.integrated.test, group.by =  'integrated_snn_res.0.4', pt.size = 0.1, label= TRUE, cells.highlight = (P11))
+
+
+a<-VlnPlot(disseq.integrated.test, features = Pop11[1], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+b<-VlnPlot(disseq.integrated.test, features = Pop11[2], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+c<-VlnPlot(disseq.integrated.test, features = Pop11[3], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+d<-VlnPlot(disseq.integrated.test, features = Pop11[4], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+e<-VlnPlot(disseq.integrated.test, features = Pop11[5], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+f<-VlnPlot(disseq.integrated.test, features = Pop11[6], group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+
+markers11<-plot_grid(a,b,c,d,e,f, nrow = 3)
+
+
+```
+
+```{r examine GOOD markers}
+
+
+VlnPlot(disseq.integrated.test, features = "MKI67", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "DYNLRB2", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "PAX6", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "CALB1", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "FABP7", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "DCN", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "SOX2", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "DCX", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "TTR", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "SPARC", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "LHX2", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "PTN", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "VIM", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "NHLH1", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "CNTN2", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "NEUROD2", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "NEUROD6", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "DCC", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "NFIB", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "PAX3", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "TRIB3", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "TROAP", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "ASPM", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "DDIT3", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "NUPR1", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "ASPM", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+VlnPlot(disseq.integrated.test, features = "TROAP", group.by = "integrated_snn_res.0.4", pt.size = 0, combine = TRUE)
+
+
+
+```
+
+
+```{r examine markers grossly by genotype}
+VlnPlot(disseq.integrated.test, features = "ATR", group.by = "genotype", pt.size = 0, combine = TRUE)
+
+
+```
+
+```{r notes and ideas}
+
+#Look at NFL (Brad Margus)
+#Preliminary focus on AHO173-MG samples and D60vs90 might work well
+#Two Gimil/AT210c3 at different differentiation experiments might be nice to contrast intially
+#query the 'pool' entry in metadata
+#Need to assess whether to actually use htodemux or mutliseq. Multiseq might be higher quality but I have cells for some samples that are not present with htodemux.
+#ROS genes, GSTT1, CAT
+#Retrograde endocannabinoid transporter genes
+#Are there african american A-T patients? Aboriginal australian?
+#Can print out datatables in chunks using DF %>% DT()
+#Devvo and Daveo meeeting 15/06 - Put code on Github, point to link with MG study samples on server and original object, re-evaluate UMAP PCs and nearest neighbours
+#Subset doublets out
+```
+
+
