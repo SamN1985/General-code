@@ -241,7 +241,7 @@ FeaturePlot(newganoids.combined, features = c(rownames(pop11.markers)[1:6]), min
 ```
 
 
-``{r rename idents}
+```{r rename idents}
   
 Idents(newganoids.combined) 
 
@@ -747,14 +747,15 @@ p1<-DimPlot(carter_sct, label = TRUE, repel = TRUE)
 
 Idents(object = carter_sct, cells = 1:39245) <- "cell_type"
 p1<-DimPlot(carter_sct, label = TRUE, repel= TRUE, group.by ='cell_type')
+```
 
 
-################
-#Here I will generate an object that is newgaoids.combined/loadganoids but has mouse converted probes. I should also check whether I can a) do a 1:1 conversion and b) isolate ncRNAs NOTE USE LOADGANOIDS
 
 
 
 ```{r create a list of mouse probesfor newganoids.combined}
+################
+#Here I will generate an object that is newgaoids.combined/loadganoids but has mouse converted probes. I should also check whether I can a) do a 1:1 conversion and b) isolate ncRNAs NOTE USE LOADGANOIDS
 
 #Now I can make a new object that should have cell type as metadata. Should make a fresh workflow to examine counts/logcounts.
 DefaultAssay(loadganoids) <- 'RNA'
@@ -993,9 +994,8 @@ combgg<-ggplotly(p = comb, width = NULL, height = NULL,
   tooltip = "all", dynamicTicks = FALSE, layerData = 1,
   originalData = TRUE, source = "A")
 
-Sys.setenv("plotly_username"="SamN1985")
-Sys.setenv("plotly_api_key"="X1ds2MU5LKIkF1xb8wcm")
-#pwhint cp6
+Sys.setenv("plotly_username"="xxx")
+Sys.setenv("plotly_api_key"="zzz")
 api_create(comb, filename = "26112019_UMAP_Cart_Nayler")
 #Need subscription for larger files, or I can probably extract the UMAP co-ords and metadata and reproduce a smaller version of this plot
 naylercartintumap<-Embeddings(object = cartermouseganoid.integrated[["umap"]])
@@ -1319,3 +1319,5 @@ dach<-FeaturePlot(loadganoids, features = c("FABP7", "VIM", "S100B", "PTPRZ1", "
 cols<-c("COL4A4", "COL4A3", "COL4A3BP", "COL4A6", "COL4A5", "COL4A1", "COL4A2", "COL4A2-AS2", "COL4A2-AS1")
 
 d<-DotPlot(loadganoids, features = cols, cols = c("pink", "green"), dot.scale = 8, group.by = "stim") + RotatedAxis()
+
+```
