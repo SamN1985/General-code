@@ -1,0 +1,3218 @@
+```{r setup, include=FALSE}
+
+library(Seurat)
+library(cowplot)
+
+
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+    #install.packages("BiocManager")
+
+#BiocManager::install("RGSEA")
+#library(gsea)
+
+#HMetabolic with JK
+knitr::opts_chunk$set(echo = TRUE,cache=T,cache.lazy = F)
+
+```
+
+```{r load data}
+KA<-readRDS(file = "/Users/samnayler/Desktop/Example_data/Aldinger/cbl_integrated_cleanCC_200518.rds")
+#Human cerebellar atlas 9-22pcw; https://pubmed.ncbi.nlm.nih.gov/34140698/
+
+#carter_sct<-readRDS(file ="~/Desktop/Code/20191126vs2_v3update__carter_sct2.rds")
+#Murine cerebellar atlas https://pubmed.ncbi.nlm.nih.gov/30220501/
+#comment out murine-related things for now, focus on human
+
+loadganoids<-readRDS("~/Desktop/20200918vs2_v3update_newganoidscombinednames.rds")
+#Sam paper Sci reports, human ipsc-derivede organoids
+loadganoids[["temp.ident"]] <-Idents(object = loadganoids)
+Idents(loadganoids)<-"temp.ident"
+
+a<-DimPlot(KA, group.by = "figure_clusters", label = TRUE, repel = TRUE, pt.size = 0.5, label.size =3) +NoLegend()
+#b<-DimPlot(carter_sct, group.by = "cell_type", label = TRUE, repel = TRUE, pt.size = 0.5, label.size =3) +NoLegend()
+c<-DimPlot(loadganoids, group.by = "temp.ident", label = TRUE, repel = TRUE, pt.size = 0.5, label.size =3) +NoLegend()
+
+plot_grid(a,b,c)
+plot_grid(a,c)
+
+
+
+#metgenes_m<-c("Dusp23", "Hk2", "Slc1a2")
+#genes of interest
+#Dusp23 is Ptpmt1, essntial for oxidation of cardohydrate fuel required for neural precursoer/stem cell function and postnatal  cerebellar dev
+#Hexokinase2 is  integral to cerebellar neurogenesis (aerobic glycolysis)
+#Glt1 or Eeat2 or Slc1a2 is the Na+ dependent glutamate transporter which astrycyytes use for clearing glutamate by released at the synaptic cleft, which is involved with postsynaptic activation. Astrocytes convert cleared glutamate into glutamine and release it for neuronal re-uptake and conversion to glutamate. This may also involve a switch from Ox met to aerobic glycolysis
+
+#MCT1-SLC16A1 and GLUT5-SLC2A5 are involved with glucose transport in microglia
+#GLUT3-SLC2A3 and MCT2-SLC16A7 are involved with Neurons
+#MCT1-SLC16A1 is involved with Ketones and Lactic acid transport in Endothelia
+#GLUT1-SLC2A1, MCT1-SLC16A1, MCT4-SLC16A3 is insolved with astrocyte glucose transport
+
+#Neuronal metabolism consists of multiple compartments, including submembrane glycolysis linked to membrane ion pumping (i.e. Na/K ATPase, K-ATP channels, etc.), aerobic glycolysis for pyruvate generation for aerobic metabolism, and NADH/ATP generation via TCA cycle within mitochondria (1)
+
+#GLUD1 IS INVOLVED WITH nitrogen and glutamate metabolism and energy homeostasis 
+
+#GLUT5 or SLC2A5 is predicted to be involved with KHK in fructose metabolism in Purkinje neurons
+
+metgenes_h<-c("DUSP23", "HK2", "SLC1A2", "SLC16A1", "SLC2A5", "SLC16A7", "SLC16A3", "SLC2A1", "SLC2A3", "GLUD1")
+DefaultAssay(KA)<-"RNA"
+VlnPlot(KA, metgenes_h)
+VlnPlot(loadganoids, metgenes_h)
+
+
+plot<- DotPlot(KA, features = metgenes_h) 
+plot + theme(legend.text = element_text(family = 'Helvetica', size = 8)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 8)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+```
+
+```{r PCs ovr time}
+Idents(KA)<-"figure_clusters"
+#What are markers genes that define the PC cluster from all others? Can increase stringency here
+KA_PCmarkers<-FindMarkers(KA, ident.1 = "01-PC",  only.pos = TRUE)
+KA_PCmarkers
+write.csv(KA_PCmarkers, file = "~/Desktop/Metabolism/PC_markers.csv")
+
+
+KA_PC<-subset(KA, idents = "01-PC", invert = FALSE)
+DefaultAssay(KA_PC)<-"RNA"
+Idents(KA_PC)<-"age"
+VlnPlot(KA_PC, features ="CALB1")
+#What are the genes  that change in Purkinje neurons most between 9Post conception weeks (early) and late (20PCW)
+PC_DE_9_20<-FindMarkers(KA_PC, ident.1 = "20 PCW",   ident.2 = "9 PCW")
+PC_DE_9_20
+write.csv(PC_DE_9_20, file = "~/Desktop/Metabolism/PC_DE_9_20.csv")
+
+JK_KA_SCT_9_20DE<-filter(PC_DE_9_20, 'p_val_adj' >0.05)
+
+
+
+PC_DE_9_20<-read.csv(file = "~/Desktop/Metabolism/PC_DE_9_20.csv")
+
+
+#https://maayanlab.cloud/Enrichr/enrich?dataset=f990b350b4051b4d93fe4a281a29232d
+VlnPlot(KA_PC, features = metgenes_h)
+#Hk2 declines acrooss development
+#Slc1a2 dips and re-establishes
+
+
+PKCgCal<-c("GRIA1", "PLCB4", "GNAQ", "ITPR1", "CACNA1A", "CA8", "GRM1", "GRIA3", "PDK1")
+DefaultAssay(KA_PC)<-"integrated"
+DoHeatmap(KA_PC, featurers = PKCgCal)
+```
+
+
+```{r BGs ovr time}
+Idents(KA)<-"figure_clusters"
+#What are markers genes that define the PC cluster from all others? Can increase stringency here
+KA_BGmarkers<-FindMarkers(KA, ident.1 = "08-BG",  only.pos = TRUE)
+KA_BGmarkers
+attach(BG_KAmarkers)
+newdata <- KA_BGmarkers[order(-avg_logFC),] 
+write.csv(KA_BGmarkers, file = "~/Desktop/Metabolism/BG_markers.csv")
+#https://maayanlab.cloud/Enrichr/enrich?dataset=415df90fd42c680a0e86dd86d4d585a2
+
+KA_BG<-subset(KA, idents = "08-BG", invert = FALSE)
+DefaultAssay(KA_BG)<-"RNA"
+Idents(KA_BG)<-"age"
+VlnPlot(KA_BG, features ="FABP7")
+VlnPlot(KA_BG, features ="GDF10")
+
+#What are the genes  that change in BGs most between 9Post conception weeks (early) and late (20PCW)
+BG_DE_9_20<-FindMarkers(KA_BG, ident.1 = "20 PCW",   ident.2 = "9 PCW")
+BG_DE_9_20
+attach(BG_DE_9_20)
+newdata <- BG_DE_9_20[order(-avg_logFC),] 
+
+write.csv(BG_DE_9_20, file = "~/Desktop/Metabolism/BG_DE_9_20.csv")
+#https://maayanlab.cloud/Enrichr/enrich?dataset=a0a563fa78aae7f9154a93e2b14694ab
+
+VlnPlot(KA_BG, features = metgenes_h)
+
+
+```
+
+
+```{r MGs ovr time}
+Idents(KA)<-"figure_clusters"
+#What are markers genes that define the PC cluster from all others? Can increase stringency here
+KA_MGmarkers<-FindMarkers(KA, ident.1 = "14-Microglia",  only.pos = TRUE)
+KA_MGmarkers
+attach(KA_MGmarkers)
+newdata <- KA_MGmarkers[order(-avg_logFC),] 
+write.csv(KA_MGmarkers, file = "~/Desktop/Metabolism/MG_markers.csv")
+#https://maayanlab.cloud/Enrichr/enrich?dataset=a8e5f84ff0f05413f81b32fc41328c37
+
+DefaultAssay(KA)<-"integrated"
+DoHeatmap(KA, features = c("RUNX1", "DOCK8", "GLUL", "RTTN", "SPP1", "DENND3"))
+
+DefaultAssay(KA)<-"RNA"
+KA_MG<-subset(KA, idents = "14-Microglia", invert = FALSE)
+DefaultAssay(KA_MG)<-"RNA"
+Idents(KA_MG)<-"age"
+VlnPlot(KA_MG, features ="CX3CR1")
+#What are the genes  that change in MG most between 9Post conception weeks (early) and late (20PCW)
+MG_DE_9_20<-FindMarkers(KA_MG, ident.1 = "20 PCW",   ident.2 = "9 PCW")
+MG_DE_9_20
+write.csv(MG_DE_9_20, file = "~/Desktop/Metabolism/MG_DE_9_20.csv")
+#https://maayanlab.cloud/Enrichr/enrich?dataset=28cdcf9abccea275d42f44cb8f23946e
+VlnPlot(KA_MG, features = metgenes_h)
+#Hk2 declines acrooss development
+#Slc1a2 dips and re-establishes
+
+
+PKCgCal<-c("GRIA1", "PLCB4", "GNAQ", "ITPR1", "CACNA1A", "CA8", "GRM1", "GRIA3", "PDK1")
+DefaultAssay(KA_PC)<-"integrated"
+DoHeatmap(KA_PC, featurers = PKCgCal)
+```
+
+```{r Pericytes ovr time}
+Idents(KA)<-"figure_clusters"
+#What are markers genes that define the Pericyte cluster from all others? Can increase stringency here
+KA_Permarkers<-FindMarkers(KA, ident.1 = "16-Pericytes",  only.pos = TRUE)
+KA_Permarkers
+attach(KA_Peremarkers)
+newdata <- KA_Permarkers[order(-avg_logFC),] 
+write.csv(KA_Permarkers, file = "~/Desktop/Metabolism/Peri_markers.csv")
+#
+
+DefaultAssay(KA)<-"integrated"
+DoHeatmap(KA, features = c("RUNX1", "DOCK8", "GLUL", "RTTN", "SPP1", "DENND3"))
+
+DefaultAssay(KA)<-"RNA"
+KA_MG<-subset(KA, idents = "14-Microglia", invert = FALSE)
+DefaultAssay(KA_MG)<-"RNA"
+Idents(KA_MG)<-"age"
+VlnPlot(KA_MG, features ="CX3CR1")
+#What are the genes  that change in MG most between 9Post conception weeks (early) and late (20PCW)
+MG_DE_9_20<-FindMarkers(KA_MG, ident.1 = "20 PCW",   ident.2 = "9 PCW")
+MG_DE_9_20
+write.csv(MG_DE_9_20, file = "~/Desktop/Metabolism/MG_DE_9_20.csv")
+#https://maayanlab.cloud/Enrichr/enrich?dataset=28cdcf9abccea275d42f44cb8f23946e
+VlnPlot(KA_MG, features = metgenes_h)
+#Hk2 declines acrooss development
+#Slc1a2 dips and re-establishes
+
+
+PKCgCal<-c("GRIA1", "PLCB4", "GNAQ", "ITPR1", "CACNA1A", "CA8", "GRM1", "GRIA3", "PDK1")
+DefaultAssay(KA_PC)<-"integrated"
+DoHeatmap(KA_PC, featurers = PKCgCal)
+```
+
+
+
+```{r top markers}
+
+markers<-c("DAB1", "AUTS2", "NPAS3", "RUNX1", "DOCK8", "GLUL", "DTNA", "KAL1", "NHSL1" )
+
+
+plot_markers<- DotPlot(KA, features = markers) 
+plot_markers + theme(legend.text = element_text(family = 'Helvetica', size = 8)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 8)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+```
+
+
+```{r nadph ox genes}
+noxgenes<-c("PKNOX1", "ENOX1", "PKNOX2", "ENOX2", "NOX4", "NOXA1", "NOXRED1", "NOX5", "ENOX1-AS1", "NOXO1", "NOX1", "NOX3", "ENOX1-AS2")
+
+plot_nox<- DotPlot(KA, features = noxgenes) 
+plot_nox + theme(legend.text = element_text(family = 'Helvetica', size = 8)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 8)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+
+```
+
+```{r dot plots per time}
+Idents(KA_PC)<-"age"
+markers_PC_time<-c("IL1RAPL2", "MT-RNR2", "GRIK1", "RYR1")
+
+
+
+plot_markers_PC_time<- DotPlot(KA_PC, features = markers_PC_time) 
+plot_markers_PC_time + theme(legend.text = element_text(family = 'Helvetica', size = 8)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 8)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+
+```
+
+```{r read in JK 1208 met list}
+
+JK<-read.csv(file ="~/Desktop/Metabolism/Geneset lists 210819.csv")
+JK[1:10]
+#reads out first 10 genes
+Alanine_aspartate_and_glutamate_metabolism<-JK[1:32,1]
+#Al<-c("ABAT", "ACY3", "ADSL","ADSS1","ADSS2","AGXT","AGXT2","ALDH4A1","ALDH5A1","ASL","ASNS", "ASPA",    "ASS1","CAD","CPS1","DDO","GAD1","GAD2","GFPT1","GFPT2","GLS","GLS2","GLUD1","GLUD2","GLUL","GOT1","GOT2",    "GPT", "GPT2","IL4I1","NIT2","PPAT")
+AlPlot<-DotPlot(KA, features = Alanine_aspartate_and_glutamate_metabolism)
+AlPlot + theme(legend.text = element_text(family = 'Helvetica', size = 8)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 8)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_Alanine_aspartate_and_glutamate_metabolism.pdf", width=27, height=18, units="cm")
+
+
+Amino_sugar_and_nucleotide_sugar_metabolism<-JK[33:76,1]
+
+
+AmPlot<-DotPlot(KA, features = Amino_sugar_and_nucleotide_sugar_metabolism)
+AmPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+
+ggsave("dotplotKA_SCT_Amino_sugar_and_nucleotide_sugar_metabolism.pdf", width=27, height=18, units="cm")
+
+
+Arginin_and_proline_metabolism<-JK[77:131,1]
+
+ArPlot<-DotPlot(KA, features = Arginin_and_proline_metabolism)
+AmPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+
+ggsave("dotplotKA_SCT_Arginin_and_proline_metabolism.pdf", width=27, height=18, units="cm")
+
+
+beta_alanine_metabolism<-JK[132:152,1]
+
+
+BAPlot<-DotPlot(KA, features = beta_alanine_metabolism)
+BAPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_beta_alanine_metabolismm.pdf", width=27, height=18, units="cm")
+
+
+Cystine_Methionine_metabolism<-JK[153:186,1]
+
+
+
+CMPlot<-DotPlot(KA, features = Cystine_Methionine_metabolism)
+CMPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_Cystine_Methionine_metabolism.pdf", width=27, height=18, units="cm")
+
+
+Fatty_acid_metabolism<-JK[187:228,1]
+
+FAPlot<-DotPlot(KA, features = Fatty_acid_metabolism)
+FAPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_Fatty_acid_metabolism.pdf", width=27, height=18, units="cm")
+
+
+Fructose_mannose<-JK[229:262,1]
+
+FMPlot<-DotPlot(KA, features = Fructose_mannose)
+FMPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+
+ggsave("dotplotKA_SCT_Fructose_mannose.pdf", width=27, height=18, units="cm")
+
+
+Galactose<-JK[263:288,1]
+
+GAPlot<-DotPlot(KA, features = Galactose)
+GAPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_Galactose.pdf", width=27, height=18, units="cm")
+
+
+Glutathione<-JK[289:338,1]
+GLPlot<-DotPlot(KA, features = Glutathione)
+GLPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_Glutathione.pdf", width=27, height=18, units="cm")
+
+
+Glycerolipid<-JK[339:387,1]
+GLYPlot<-DotPlot(KA, features = Glycerolipid)
+GLYPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_Glycerolipid.pdf", width=27, height=18, units="cm")
+
+
+Glycerophospholipid<-JK[388:464,1]
+GPLPlot<-DotPlot(KA, features = Glycerophospholipid)
+GPLPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 8)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_Glycerophospholipid.pdf", width=27, height=18, units="cm")
+
+
+
+Glycine_serine_and_threonine_metabolism<-JK[465:495,1]
+GSTPlot<-DotPlot(KA, features = Glycine_serine_and_threonine_metabolism)
+GSTPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 8)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_Glycine_serine_and_threonine_metabolism.pdf", width=27, height=18, units="cm")
+
+
+Glycolysis_gluconeogenesis<-JK[496:557,1]
+GlGlPlot<-DotPlot(KA, features = Glycolysis_gluconeogenesis)
+GlGlPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 8)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_GlycolysisGluconeogenesis.pdf", width=27, height=18, units="cm")
+
+
+Histidine<-JK[558:586,1]
+HPlot<-DotPlot(KA, features = Histidine)
+HPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_Histidine.pdf", width=27, height=18, units="cm")
+
+
+LysineDeg<-JK[587:630,1]
+LDPlot<-DotPlot(KA, features = LysineDeg)
+LDPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_LysineDegradation.pdf", width=27, height=18, units="cm")
+
+
+NitrogenMetabolism<-JK[631:653,1]
+NMPlot<-DotPlot(KA, features = NitrogenMetabolism)
+NMPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_NitrogenMetabolism.pdf", width=27, height=18, units="cm")
+
+
+OneCarbonPoolFolatee<-JK[654:670,1]
+OCPFPlot<-DotPlot(KA, features = OneCarbonPoolFolatee)
+OCPFPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_OneCarbonePoolFolate.pdf", width=27, height=18, units="cm")
+
+
+OxPhos<-JK[671:802,1]
+OxPhosPlot<-DotPlot(KA, features = OxPhos)
+OxPhosPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 4)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_OxPhos.pdf", width=27, height=18, units="cm")
+
+
+Pentose_and_glucuronate_interconversions<-JK[803:830,1]
+PGIPlot<-DotPlot(KA, features = Pentose_and_glucuronate_interconversions)
+PGIPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_Pentose_and_glucuronate_interconversions.pdf", width=27, height=18, units="cm")
+
+
+Pentose_phosphate<-JK[831:857,1]
+PPPlot<-DotPlot(KA, features = Pentose_phosphate)
+PPPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_Pentose_phosphate.pdf", width=27, height=18, units="cm")
+
+
+Phenylalanine <-JK[858:875,1]
+PhPlot<-DotPlot(KA, features = Phenylalanine)
+PhPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_Phenylalanine.pdf", width=27, height=18, units="cm")
+
+
+Propanoate<-JK[876:908,1]
+PrPlot<-DotPlot(KA, features = Propanoate)
+PrPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_Propanoate.pdf", width=27, height=18, units="cm")
+
+
+
+Purine<-JK[909:1067,1]
+PrPlot<-DotPlot(KA, features = Purine)
+PrPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 4)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_Purine.pdf", width=27, height=18, units="cm")
+
+
+Pyrimidine<-JK[1068:1165,1]
+PrPlot<-DotPlot(KA, features = Pyrimidine)
+PrPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 6)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_Pyrimidine.pdf", width=27, height=18, units="cm")
+
+
+
+Pyruvate<-JK[1166:1205,1]
+PrPlot<-DotPlot(KA, features = Pyruvate)
+PrPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_Pyruvate.pdf", width=27, height=18, units="cm")
+
+
+Steroid<-JK[1206:1225,1]
+SPlot<-DotPlot(KA, features = Steroid)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_Sterioid.pdf", width=27, height=18, units="cm")
+
+
+Steroid_hormone_biosynth<-JK[1226:1277,1]
+SPlot<-DotPlot(KA, features = Steroid_hormone_biosynth)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_Steroid_hormone_biosynth.pdf", width=27, height=18, units="cm")
+
+
+Valine_leucine_and_isoleucine_biosynthesis<-JK[1278:1332,1]
+SPlot<-DotPlot(KA, features = Valine_leucine_and_isoleucine_biosynthesis)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_Valine_leucine_and_isoleucine_biosynthesis.pdf", width=27, height=18, units="cm")
+
+
+TCA<-JK[1333:1363,1]
+SPlot<-DotPlot(KA, features = TCA)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_TCA.pdf", width=27, height=18, units="cm")
+
+
+Arachidonic<-JK[1364:1421,1]
+SPlot<-DotPlot(KA, features = Arachidonic)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_Arachidonic.pdf", width=27, height=18, units="cm")
+
+
+Ascorbate_and_aldarate <-JK[1422:1446,1]
+SPlot<-DotPlot(KA, features = Ascorbate_and_aldarate)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_Ascorbate_and_aldarate.pdf", width=27, height=18, units="cm")
+
+
+BiosynthesisUnsatFattyAcid <-JK[1447:1468,1]
+SPlot<-DotPlot(KA, features = BiosynthesisUnsatFattyAcid)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_BiosynthesisUnsatFattyAcid.pdf", width=27, height=18, units="cm")
+
+
+Butanoate <-JK[1469:1502,1]
+SPlot<-DotPlot(KA, features = Butanoate)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_Butanoate.pdf", width=27, height=18, units="cm")
+
+
+EtherLipid <-JK[1503:1535,1]
+SPlot<-DotPlot(KA, features = EtherLipid)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_EtherLipid.pdf", width=27, height=18, units="cm")
+
+
+alpha_Linolenic_acid_metabolism <-JK[1536:1554,1]
+SPlot<-DotPlot(KA, features = alpha_Linolenic_acid_metabolism )
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_alpha_Linolenic_acid_metabolism .pdf", width=27, height=18, units="cm")
+
+
+#SLC <-JK[1555:1908,1]
+#SPlot<-DotPlot(KA, features = SLC)
+#SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+#theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+#theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 1)) +
+#  theme(axis.title.x = element_blank()) + 
+#  theme(axis.title.y = element_blank())
+
+#ggsave("dotplotKA_SCT_SLC.pdf", width=27, height=18, units="cm")
+
+
+
+#Break these up
+SLC1 <-JK[1555:1605,1]
+SPlot<-DotPlot(KA, features = SLC1)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 6)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_aSLC1.pdf", width=27, height=18, units="cm")
+
+
+SLC2 <-JK[1605:1655,1]
+SPlot<-DotPlot(KA, features = SLC2)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 6)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_aSLC2.pdf", width=27, height=18, units="cm")
+
+
+SLC3 <-JK[1655:1705,1]
+SPlot<-DotPlot(KA, features = SLC3)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 6)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_aSLC3.pdf", width=27, height=18, units="cm")
+
+
+SLC4 <-JK[1705:1755,1]
+SPlot<-DotPlot(KA, features = SLC4)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 6)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_aSLC4.pdf", width=27, height=18, units="cm")
+
+
+SLC5<-JK[1755:1805,1]
+SPlot<-DotPlot(KA, features = SLC5)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 6)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_aSLC5.pdf", width=27, height=18, units="cm")
+
+
+SLC6 <-JK[1805:1855,1]
+SPlot<-DotPlot(KA, features = SLC6)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 6)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+ggsave("dotplotKA_SCT_aSLC6.pdf", width=27, height=18, units="cm")
+
+
+
+SLC7 <-JK[1855:1908,1]
+SPlot<-DotPlot(KA, features = SLC7)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 6)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_aSLC7 .pdf", width=27, height=18, units="cm")
+
+
+
+Transporter <-JK[1909:1911,1]
+SPlot<-DotPlot(KA, features =Transporter)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_Transporter.pdf", width=27, height=18, units="cm")
+
+
+```
+
+
+
+```{r examine over time}
+
+#Examine difference in RNA and SCT slots
+Idents(KA_PC)
+DefaultAssay(KA_PC)<-"RNA"
+DotPlot(KA_PC, features = OxPhos)
+
+
+Purk_time_Glyc<-DotPlot(KA_PC, features = Glycolysis_gluconeogenesis)
+
+#I think maybe the metadata labels for time are causing issuese with MetaFeture
+
+
+library(janitor)
+
+
+vectorage<-as.data.frame(KA_PC@meta.data$age)
+vectorage2<-clean_names(vectorage)
+#doesnt work
+
+
+names(vectorage)<-gsub("\\s", "_",names(vectorage))
+```
+
+```{r search}
+
+allgenes<-rownames(KA)
+grep("NOX", allgenes)
+
+```
+
+
+```{r dif between RNA and SCT}
+
+DefaultAssay(KA_PC)<-"RNA"
+a<-DotPlot(KA_PC, features = OxPhos)
+
+DefaultAssay(KA_PC)<-"SCT"
+b<-DotPlot(KA_PC, features = OxPhos)
+
+DefaultAssay(KA_PC)<-"integrated"
+c<-DotPlot(KA_PC, features = OxPhos)
+
+d<-plot_grid(a,b,c, labels = c("RNA", "SCT", "integrated"))
+
+```
+
+
+
+
+```{r reead out in loadganouids}
+
+
+JK<-read.csv(file ="~/Desktop/Metabolism/Geneset lists 210819.csv")
+JK[1:10]
+#reads out first 10 genes
+Alanine_aspartate_and_glutamate_metabolism<-JK[1:32,1]
+#Al<-c("ABAT", "ACY3", "ADSL","ADSS1","ADSS2","AGXT","AGXT2","ALDH4A1","ALDH5A1","ASL","ASNS", "ASPA",    "ASS1","CAD","CPS1","DDO","GAD1","GAD2","GFPT1","GFPT2","GLS","GLS2","GLUD1","GLUD2","GLUL","GOT1","GOT2",    "GPT", "GPT2","IL4I1","NIT2","PPAT")
+AlPlot<-DotPlot(loadganoids, features = Alanine_aspartate_and_glutamate_metabolism)
+AlPlot + theme(legend.text = element_text(family = 'Helvetica', size = 8)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 8)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotloadganoids_SCT_Alanine_aspartate_and_glutamate_metabolism.pdf", width=27, height=18, units="cm")
+
+
+Amino_sugar_and_nucleotide_sugar_metabolism<-JK[33:76,1]
+
+
+AmPlot<-DotPlot(loadganoids, features = Amino_sugar_and_nucleotide_sugar_metabolism)
+AmPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+
+ggsave("dotplotloadganoids_SCT_Amino_sugar_and_nucleotide_sugar_metabolism.pdf", width=27, height=18, units="cm")
+
+
+Arginin_and_proline_metabolism<-JK[77:131,1]
+
+ArPlot<-DotPlot(loadganoids, features = Arginin_and_proline_metabolism)
+AmPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+
+ggsave("dotplotloadganoids_SCT_Arginin_and_proline_metabolism.pdf", width=27, height=18, units="cm")
+
+
+beta_alanine_metabolism<-JK[132:152,1]
+
+
+BAPlot<-DotPlot(loadganoids, features = beta_alanine_metabolism)
+BAPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotloadganoids_SCT_beta_alanine_metabolismm.pdf", width=27, height=18, units="cm")
+
+
+Cystine_Methionine_metabolism<-JK[153:186,1]
+
+
+
+CMPlot<-DotPlot(loadganoids, features = Cystine_Methionine_metabolism)
+CMPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotloadganoids_SCT_Cystine_Methionine_metabolism.pdf", width=27, height=18, units="cm")
+
+
+Fatty_acid_metabolism<-JK[187:228,1]
+
+FAPlot<-DotPlot(loadganoids, features = Fatty_acid_metabolism)
+FAPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotloadganoids_SCT_Fatty_acid_metabolism.pdf", width=27, height=18, units="cm")
+
+
+Fructose_mannose<-JK[229:262,1]
+
+FMPlot<-DotPlot(loadganoids, features = Fructose_mannose)
+FMPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+
+ggsave("dotplotloadganoids_SCT_Fructose_mannose.pdf", width=27, height=18, units="cm")
+
+
+Galactose<-JK[263:288,1]
+
+GAPlot<-DotPlot(loadganoids, features = Galactose)
+GAPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotloadganoids_SCT_Galactose.pdf", width=27, height=18, units="cm")
+
+
+Glutathione<-JK[289:338,1]
+GLPlot<-DotPlot(loadganoids, features = Glutathione)
+GLPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotloadganoids_SCT_Glutathione.pdf", width=27, height=18, units="cm")
+
+
+Glycerolipid<-JK[339:387,1]
+GLYPlot<-DotPlot(loadganoids, features = Glycerolipid)
+GLYPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotloadganoids_SCT_Glycerolipid.pdf", width=27, height=18, units="cm")
+
+
+Glycerophospholipid<-JK[388:464,1]
+GPLPlot<-DotPlot(loadganoids, features = Glycerophospholipid)
+GPLPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 8)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotloadganoids_SCT_Glycerophospholipid.pdf", width=27, height=18, units="cm")
+
+
+
+Glycine_serine_and_threonine_metabolism<-JK[465:495,1]
+GSTPlot<-DotPlot(loadganoids, features = Glycine_serine_and_threonine_metabolism)
+GSTPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 8)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotloadganoids_SCT_Glycine_serine_and_threonine_metabolism.pdf", width=27, height=18, units="cm")
+
+
+Glycolysis_gluconeogenesis<-JK[496:557,1]
+GlGlPlot<-DotPlot(loadganoids, features = Glycolysis_gluconeogenesis)
+GlGlPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 8)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotloadganoids_SCT_GlycolysisGluconeogenesis.pdf", width=27, height=18, units="cm")
+
+
+Histidine<-JK[558:586,1]
+HPlot<-DotPlot(loadganoids, features = Histidine)
+HPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotloadganoids_SCT_Histidine.pdf", width=27, height=18, units="cm")
+
+
+LysineDeg<-JK[587:630,1]
+LDPlot<-DotPlot(loadganoids, features = LysineDeg)
+LDPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotloadganoids_SCT_LysineDegradation.pdf", width=27, height=18, units="cm")
+
+
+NitrogenMetabolism<-JK[631:653,1]
+NMPlot<-DotPlot(loadganoids, features = NitrogenMetabolism)
+NMPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotloadganoids_SCT_NitrogenMetabolism.pdf", width=27, height=18, units="cm")
+
+
+OneCarbonPoolFolatee<-JK[654:670,1]
+OCPFPlot<-DotPlot(loadganoids, features = OneCarbonPoolFolatee)
+OCPFPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotloadganoids_SCT_OneCarbonePoolFolate.pdf", width=27, height=18, units="cm")
+
+
+OxPhos<-JK[671:802,1]
+OxPhosPlot<-DotPlot(loadganoids, features = OxPhos)
+OxPhosPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 4)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotloadganoids_SCT_OxPhos.pdf", width=27, height=18, units="cm")
+
+
+Pentose_and_glucuronate_interconversions<-JK[803:830,1]
+PGIPlot<-DotPlot(loadganoids, features = Pentose_and_glucuronate_interconversions)
+PGIPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotloadganoids_SCT_Pentose_and_glucuronate_interconversions.pdf", width=27, height=18, units="cm")
+
+
+Pentose_phosphate<-JK[831:857,1]
+PPPlot<-DotPlot(loadganoids, features = Pentose_phosphate)
+PPPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_Pentose_phosphate.pdf", width=27, height=18, units="cm")
+
+
+Phenylalanine <-JK[858:875,1]
+PhPlot<-DotPlot(loadganoids, features = Phenylalanine)
+PhPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_Phenylalanine.pdf", width=27, height=18, units="cm")
+
+
+Propanoate<-JK[876:908,1]
+PrPlot<-DotPlot(loadganoids, features = Propanoate)
+PrPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_Propanoate.pdf", width=27, height=18, units="cm")
+
+
+
+Purine<-JK[909:1067,1]
+PrPlot<-DotPlot(loadganoids, features = Purine)
+PrPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 4)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_Purine.pdf", width=27, height=18, units="cm")
+
+
+Pyrimidine<-JK[1068:1165,1]
+PrPlot<-DotPlot(loadganoids, features = Pyrimidine)
+PrPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 6)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_Pyrimidine.pdf", width=27, height=18, units="cm")
+
+
+
+Pyruvate<-JK[1166:1205,1]
+PrPlot<-DotPlot(loadganoids, features = Pyruvate)
+PrPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_Pyruvate.pdf", width=27, height=18, units="cm")
+
+
+Steroid<-JK[1206:1225,1]
+SPlot<-DotPlot(loadganoids, features = Steroid)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_Sterioid.pdf", width=27, height=18, units="cm")
+
+
+Steroid_hormone_biosynth<-JK[1226:1277,1]
+SPlot<-DotPlot(loadganoids, features = Steroid_hormone_biosynth)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_Steroid_hormone_biosynth.pdf", width=27, height=18, units="cm")
+
+
+Valine_leucine_and_isoleucine_biosynthesis<-JK[1278:1332,1]
+SPlot<-DotPlot(loadganoids, features = Valine_leucine_and_isoleucine_biosynthesis)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_Valine_leucine_and_isoleucine_biosynthesis.pdf", width=27, height=18, units="cm")
+
+
+TCA<-JK[1333:1363,1]
+SPlot<-DotPlot(loadganoids, features = TCA)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_TCA.pdf", width=27, height=18, units="cm")
+
+
+Arachidonic<-JK[1364:1421,1]
+SPlot<-DotPlot(loadganoids, features = Arachidonic)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_Arachidonic.pdf", width=27, height=18, units="cm")
+
+
+Ascorbate_and_aldarate <-JK[1422:1446,1]
+SPlot<-DotPlot(loadganoids, features = Ascorbate_and_aldarate)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_Ascorbate_and_aldarate.pdf", width=27, height=18, units="cm")
+
+
+BiosynthesisUnsatFattyAcid <-JK[1447:1468,1]
+SPlot<-DotPlot(loadganoids, features = BiosynthesisUnsatFattyAcid)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_BiosynthesisUnsatFattyAcid.pdf", width=27, height=18, units="cm")
+
+
+Butanoate <-JK[1469:1502,1]
+SPlot<-DotPlot(loadganoids, features = Butanoate)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_Butanoate.pdf", width=27, height=18, units="cm")
+
+
+EtherLipid <-JK[1503:1535,1]
+SPlot<-DotPlot(loadganoids, features = EtherLipid)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_EtherLipid.pdf", width=27, height=18, units="cm")
+
+
+alpha_Linolenic_acid_metabolism <-JK[1536:1554,1]
+SPlot<-DotPlot(loadganoids, features = alpha_Linolenic_acid_metabolism )
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_alpha_Linolenic_acid_metabolism .pdf", width=27, height=18, units="cm")
+
+
+#SLC <-JK[1555:1908,1]
+#SPlot<-DotPlot(loadganoids, features = SLC)
+#SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+#theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+#theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 1)) +
+#  theme(axis.title.x = element_blank()) + 
+#  theme(axis.title.y = element_blank())
+
+#ggsave("dotplotloadganoids_SCT_SLC.pdf", width=27, height=18, units="cm")
+
+
+
+#Break these up
+SLC1 <-JK[1555:1605,1]
+SPlot<-DotPlot(loadganoids, features = SLC1)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 6)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_aSLC1.pdf", width=27, height=18, units="cm")
+
+
+SLC2 <-JK[1605:1655,1]
+SPlot<-DotPlot(loadganoids, features = SLC2)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 6)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_aSLC2.pdf", width=27, height=18, units="cm")
+
+
+SLC3 <-JK[1655:1705,1]
+SPlot<-DotPlot(loadganoids, features = SLC3)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 6)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_aSLC3.pdf", width=27, height=18, units="cm")
+
+
+SLC4 <-JK[1705:1755,1]
+SPlot<-DotPlot(loadganoids, features = SLC4)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 6)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_aSLC4.pdf", width=27, height=18, units="cm")
+
+
+SLC5<-JK[1755:1805,1]
+SPlot<-DotPlot(loadganoids, features = SLC5)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 6)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_aSLC5.pdf", width=27, height=18, units="cm")
+
+
+SLC6 <-JK[1805:1855,1]
+SPlot<-DotPlot(loadganoids, features = SLC6)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 6)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+ggsave("dotplotloadganoids_SCT_aSLC6.pdf", width=27, height=18, units="cm")
+
+
+
+SLC7 <-JK[1855:1908,1]
+SPlot<-DotPlot(loadganoids, features = SLC7)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 6)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_aSLC7 .pdf", width=27, height=18, units="cm")
+
+
+
+Transporter <-JK[1909:1911,1]
+SPlot<-DotPlot(loadganoids, features =Transporter)
+SPlot + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotloadganoids_SCT_Transporter.pdf", width=27, height=18, units="cm")
+
+
+```
+
+
+
+```
+
+```{r gsea}
+#Can make figure plots for average expression
+Avg_Aldinger <-  AverageExpression(KA, return.seurat = T,)
+
+Avg_aldinger <- GetAssayData(Avg_Aldinger ,slot = "data", assay = "RNA")
+
+write.csv(Avg_aldinger, file ="~/Desktop/Metabolism/20210907_Avg_integratede_KA.csv")
+```
+
+
+```{r de}
+cerebellar.integrated<-readRDS( file = "~/Desktop/20200918KALoadganoidsSCTBest.rds")
+Idents(cerebellar.integrated)<-"dataset"
+loadvsKA<-FindMarkers(cerebellar.integrated, ident.1 = "Nayler1", ident.2 = "Aldinger", test.use ="negbinom", latent.vars = "nFeature_RNA")
+degenes<-rownames(loadvsKA)
+DoHeatmap(cerebellar.integrated, features = degenes)
+write.csv(loadvsKA, file ="~/Desktop/Metabolism/20210929_LoadvsKA_negbinom_latvarnFeature.csv")
+loadvsKA<-read.csv(file ="~/Desktop/Metabolism/20210929_LoadvsKA_negbinom_latvarnFeature.csv")
+
+biggenes<-loadvsKA$X
+DoHeatmap(cerebellar.integrated, features = biggenes) + NoLegend()
+#How many are in hvg for KA and load
+
+```
+
+
+```{r pathways 020921 kryycer}
+jk209<-c("SLC16A7",  "SLC38A1", "SLC41A2", "SLC44A1", "SLCO5A1", "SLC23A2", "SLC24A3", "SLC24A2", "SLC25A12", "SLC1A1", "SLC1A3", "SLC1A6", "ME1", "ME2", "ME3", "MPC1", "CPT1A", "L2HGDH", "ACSS1")
+jk209b<-DotPlot(KA, features = jk209)
+
+jk209b + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+
+```
+```{r hatten}
+hatten<-DotPlot(KA, features = c("ZEB1", "HIF1A", "BNIP3", "HK2", "VEGFA", "EGLN1", "EGLN3", "CHL1", "PARD3", "PARD6A","ITGB1"))
+hatten + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_Hatten_genes.tiff", width=13.5, height=9, units="cm")
+
+
+
+
+hattenload<-DotPlot(loadganoids, features = c("ZEB1", "HIF1A", "BNIP3", "HK2", "VEGFA", "EGLN1", "EGLN3", "CHL1", "PARD3", "PARD6A","ITGB1"))
+
+hattenload + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotload_SCT_Hatten_genes.tiff", width=27, height=18, units="cm")
+
+
+
+hattenloadsplit<-DotPlot(loadganoids, features = c("ZEB1", "HIF1A", "BNIP3", "HK2", "VEGFA", "EGLN1", "EGLN3", "CHL1", "PARD3", "PARD6A","ITGB1"), split.by = "stim") 
+
+
+hattenloadsplit + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotload_SCT_Hatten_genes_splitastim.tiff", width=13.5, height=9, units="cm")
+
+
+a<-VlnPlot(loadganoids, features = "ZEB1", split.by = "stim") + NoLegend()
+b<-VlnPlot(loadganoids, features = "HIF1A") + NoLegend()
+c<-VlnPlot(loadganoids, features = "BNIP3") + NoLegend()
+d<-VlnPlot(loadganoids, features ="HK2") + NoLegend()
+e<-VlnPlot(loadganoids, features ="VEGFA") + NoLegend()
+f<-VlnPlot(loadganoids, features ="EGLN1") + NoLegend()
+g<-VlnPlot(loadganoids, features ="EGLN3") + NoLegend()
+h<-VlnPlot(loadganoids, features ="PARD3") + NoLegend()
+i<-VlnPlot(loadganoids, features ="PARD3") + NoLegend()
+j<-VlnPlot(loadganoids, features ="ITGB1") + NoLegend()
+plot_grid(a,b,c,d,e,f,g,h,i,j, nrow = 2, ncol = 4)
+ggsave("dotplotKA_GC_SCT_Hatten_genes_time_vio.tiff", width=13.5, height=9, units="cm")
+
+
+
+KA_GC<-subset(KA, idents = "03-GCP", invert = FALSE)
+Idents(KA_GC)<-"age"
+KA_GC_time<-DotPlot(KA_GC, features = c("ZEB1", "HIF1A", "BNIP3", "HK2", "VEGFA", "EGLN1", "EGLN3", "CHL1", "PARD3", "PARD6A", "ITGB1"))
+
+KA_GC_time + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_GC_SCT_Hatten_genes_time.tiff", width=10, height=7, units="cm")
+
+
+a<-VlnPlot(KA_GC, features = "ZEB1") + NoLegend()
+b<-VlnPlot(KA_GC, features = "HIF1A") + NoLegend()
+c<-VlnPlot(KA_GC, features = "BNIP3") + NoLegend()
+d<-VlnPlot(KA_GC, features ="HK2") + NoLegend()
+e<-VlnPlot(KA_GC, features ="VEGFA") + NoLegend()
+f<-VlnPlot(KA_GC, features ="EGLN1") + NoLegend()
+g<-VlnPlot(KA_GC, features ="EGLN3") + NoLegend()
+h<-VlnPlot(KA_GC, features ="PARD3") + NoLegend()
+i<-VlnPlot(KA_GC, features ="PARD3") + NoLegend()
+j<-VlnPlot(KA_GC, features ="ITGB1") + NoLegend()
+plot_grid(a,b,c,d,e,f,g,h,i,j, nrow = 2, ncol = 4)
+ggsave("dotplotKA_GC_SCT_Hatten_genes_time_vio.tiff", width=13.5, height=9, units="cm")
+
+```
+
+
+
+```{r interesting SLCs}
+
+slcs<-c("SLC10A1", "SLC10A2", "SLC10A7", "SLC11A1", "SLC11A2", "SLC12A2", "SLC12A4", "SLC12A5, "SLC12A7", "SLC13A3", "SLC15A2", "SLC16A2", "SLC16A9", "SLC11A1", "SLC12A2", "SLC12A4", "SLC12A5", "SLC12A7)
+
+
+#ABRIDGED
+SLC<-DotPlot(KA, features = c("SLC2A5", "SLC16A1", "SLC1A2", "GLUD1", "SLC2A1", "SLC2A3", "SLC24A3))
+
+SLC + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_SLCS.pdf", width=27, height=18, units="cm")
+
+```
+
+
+```{r meta}
+features_hat<-c("ZEB1", "HIF1A", "BNIP3", "HK2", "VEGFA", "EGLN1", "EGLN3", "CHL1", "PARD3", "PARD6A", "ITGB1")
+
+hat<-MetaFeature(
+  object = KA_GC,
+  features = features_hat,
+meta.name = 'hattenlist')
+
+VlnPlot(hat)
+
+Idents(hat)<-'age
+DotPlot(hat, features = "hattenlist")
+
+head(hat[[]])
+FeaturePlot(hat, features = hattenlist)
+
+#This works well
+
+
+JK<-read.csv(file ="~/Desktop/Metabolism/Geneset lists 210819.csv")
+Alanine_aspartate_and_glutamate_metabolism<-JK[1:32,1]
+Amino_sugar_and_nucleotide_sugar_metabolism<-JK[33:76,1]
+Arginin_and_proline_metabolism<-JK[77:131,1]
+beta_alanine_metabolism<-JK[132:152,1]
+Cystine_Methionine_metabolism<-JK[153:186,1]
+Fatty_acid_metabolism<-JK[187:228,1]
+Fructose_mannose<-JK[229:262,1]
+Galactose<-JK[263:288,1]
+Glutathione<-JK[289:338,1]
+Glycerolipid<-JK[339:387,1]
+Glycerophospholipid<-JK[388:464,1]
+Glycine_serine_and_threonine_metabolism<-JK[465:495,1]
+Glycolysis_gluconeogenesis<-JK[496:557,1]
+Histidine<-JK[558:586,1]
+LysineDeg<-JK[587:630,1]
+NitrogenMetabolism<-JK[631:653,1]
+OneCarbonPoolFolatee<-JK[654:670,1]
+OxPhos<-JK[671:802,1]
+Pentose_and_glucuronate_interconversions<-JK[803:830,1]
+Pentose_phosphate<-JK[831:857,1]
+Phenylalanine <-JK[858:875,1]
+Propanoate<-JK[876:908,1]
+Purine<-JK[909:1067,1]
+Pyrimidine<-JK[1068:1165,1]
+Pyruvate<-JK[1166:1205,1]
+Steroid<-JK[1206:1225,1]
+Steroid_hormone_biosynth<-JK[1226:1277,1]
+Valine_leucine_and_isoleucine_biosynthesis<-JK[1278:1332,1]
+TCA<-JK[1333:1363,1]
+Arachidonic<-JK[1364:1421,1]
+Ascorbate_and_aldarate <-JK[1422:1446,1]
+BiosynthesisUnsatFattyAcid <-JK[1447:1468,1]
+Butanoate <-JK[1469:1502,1]
+EtherLipid <-JK[1503:1535,1]
+alpha_Linolenic_acid_metabolism <-JK[1536:1554,1]
+SLC1 <-JK[1555:1605,1]
+SLC2 <-JK[1605:1655,1]
+SLC3 <-JK[1655:1705,1]
+SLC4 <-JK[1705:1755,1]
+SLC5<-JK[1755:1805,1]
+SLC6 <-JK[1805:1855,1]
+SLC7 <-JK[1855:1908,1]
+Transporter <-JK[1909:1911,1]
+
+Ox<-intersect(OxPhos, allgenes)
+
+
+oxy<-MetaFeature(
+  object = KA,
+  features = Ox,
+meta.name = 'Oxidative.Phosphorylation')
+
+
+DotPlot(oxy, features = 'Oxidative.Phosphorylation')
+
+
+
+###
+Try combined output
+
+Gly2<-MetaFeature(
+  object = oxy,
+  features = Glyc,
+meta.name = 'Glycolysis_Gluconeogenesis')
+
+
+DotPlot(Gly2, features = c('Oxidative.Phosphorylation', 'Glycolysis_Gluconeogenesis'))
+
+
+Glyc<-intersect(Glycolysis_gluconeogenesis, allgenes)
+
+
+Gly<-MetaFeature(
+  object = KA,
+  features = Glyc,
+meta.name = 'Glycolysis_Gluconeogenesis')
+
+
+DotPlot(Gly, features = 'Glycolysis_Gluconeogenesis')
+
+Glyc2<-intersect(Glycolysis_gluconeogenesis, allgenes2)
+
+
+Gly2<-MetaFeature(
+  object = loadganoids,
+  features = Glyc2,
+meta.name = 'Glycolysis.Gluconeogenesis')
+
+
+DotPlot(Gly2, features = 'Glycolysis.Gluconeogenesis')
+
+Pentose_phosphate2<-intersect(Pentose_phosphate, allgenes)
+
+Gly<-MetaFeature(
+  object = KA,
+  features = Glyc,
+meta.name = 'Glycolysis_Gluconeogenesis')
+
+
+DotPlot(Gly, features = 'Glycolysis_Gluconeogenesis')
+
+Pentose_phosphate2<-intersect(Pentose_phosphate, allgenes)
+
+PP<-MetaFeature(
+  object = KA,
+  features = Pentose_phosphate2,
+meta.name = 'Pentose.Phosphate')
+
+
+DotPlot(PP, features = 'Pentose.Phosphate')
+
+Pentose_phosphate2<-intersect(Pentose_phosphate, allgenes2)
+
+PP2<-MetaFeature(
+  object = loadganoids,
+  features = Pentose_phosphate2,
+meta.name = 'Pentose.Phosphate')
+
+
+DotPlot(PP2, features = 'Pentose.Phosphate')
+
+
+
+FA<-intersect(Fatty_acid_metabolism, allgenes)
+
+
+FAm<-MetaFeature(
+  object = KA,
+  features = FA,
+meta.name = 'Fatty.Acid.Metabolism')
+
+
+DotPlot(FAm, features = 'Fatty.Acid.Metabolism')
+
+ggsave("dotplotKA_SCT_FAMS.pdf", width=9, height=6, units="cm")
+
+FA2<-intersect(Fatty_acid_metabolism, allgenes2)
+
+
+FAm2<-MetaFeature(
+  object = loadganoids,
+  features = FA2,
+meta.name = 'Fatty.Acid.Metabolism')
+
+
+DotPlot(FAm2, features = 'Fatty.Acid.Metabolism')
+ggsave("dotplotload_SCT_FAMS.pdf", width=9, height=6, units="cm")
+
+
+#Lets try by time
+
+Idents(KA_PC)<-"figure_clusters"
+oxy_PC<-MetaFeature(
+  object = KA_PC,
+  features = Ox,
+meta.name = 'Oxidative.Phosphorylation.Purkinje')
+
+DotPlot(oxy_PC, features = 'Oxidative.Phosphorylation.Purkinje')
+
+```
+
+
+```{dims}
+
+DotPlot(KA, features = "PTPMT1")
+DotPlot(loadganoids, features = "PTPMT1")
+
+KA_GCP<-subset(KA, idents = "03-GCP", invert = FALSE)
+
+KA_RL<-subset(KA, idents = "02-RL", invert = FALSE)
+Idents(KA_RL)<-"age""
+a<-VlnPlot(KA_RL, features = "PTPMT1)
+
+
+KA_AST_EP<-subset(KA, idents = "19-Ast/Ependymal", invert = FALSE)
+Idents(KA_AST_EP)<-"age"
+
+b<-VlnPlot(KA_AST_EP, features = "PTPMT1")
+
+
+```
+
+
+
+```{r make combined maps}
+
+JK<-read.csv(file ="~/Desktop/Metabolism/Geneset lists 210819.csv")
+Alanine_aspartate_and_glutamate_metabolism<-JK[1:32,1]
+Amino_sugar_and_nucleotide_sugar_metabolism<-JK[33:76,1]
+Arginin_and_proline_metabolism<-JK[77:131,1]
+beta_alanine_metabolism<-JK[132:152,1]
+Cystine_Methionine_metabolism<-JK[153:186,1]
+Fatty_acid_metabolism<-JK[187:228,1]
+Fructose_mannose<-JK[229:262,1]
+Galactose<-JK[263:288,1]
+Glutathione<-JK[289:338,1]
+Glycerolipid<-JK[339:387,1]
+Glycerophospholipid<-JK[388:464,1]
+Glycine_serine_and_threonine_metabolism<-JK[465:495,1]
+Glycolysis_gluconeogenesis<-JK[496:557,1]
+Histidine<-JK[558:586,1]
+LysineDeg<-JK[587:630,1]
+NitrogenMetabolism<-JK[631:653,1]
+OneCarbonPoolFolatee<-JK[654:670,1]
+OxPhos<-JK[671:802,1]
+Pentose_and_glucuronate_interconversions<-JK[803:830,1]
+Pentose_phosphate<-JK[831:857,1]
+Phenylalanine <-JK[858:875,1]
+Propanoate<-JK[876:908,1]
+Purine<-JK[909:1067,1]
+Pyrimidine<-JK[1068:1165,1]
+Pyruvate<-JK[1166:1205,1]
+Steroid<-JK[1206:1225,1]
+Steroid_hormone_biosynth<-JK[1226:1277,1]
+Valine_leucine_and_isoleucine_biosynthesis<-JK[1278:1332,1]
+TCA<-JK[1333:1363,1]
+Arachidonic<-JK[1364:1421,1]
+Ascorbate_and_aldarate <-JK[1422:1446,1]
+BiosynthesisUnsatFattyAcid <-JK[1447:1468,1]
+Butanoate <-JK[1469:1502,1]
+EtherLipid <-JK[1503:1535,1]
+alpha_Linolenic_acid_metabolism <-JK[1536:1554,1]
+SLC1 <-JK[1555:1605,1]
+SLC2 <-JK[1605:1655,1]
+SLC3 <-JK[1655:1705,1]
+SLC4 <-JK[1705:1755,1]
+SLC5<-JK[1755:1805,1]
+SLC6 <-JK[1805:1855,1]
+SLC7 <-JK[1855:1908,1]
+Transporter <-JK[1909:1911,1]
+
+
+
+
+
+Al<-intersect(Alanine_aspartate_and_glutamate_metabolism, allgenes)
+Am<-intersect(Amino_sugar_and_nucleotide_sugar_metabolism, allgenes)
+Ar<-intersect(Arginin_and_proline_metabolism, allgenes)
+Bet<-inttersect(beta_alanine_metabolism, allgenes)
+Cys<-intersect(Cystine_Methionine_metabolism, allgenes)
+Fat<-intersect(Fatty_acid_metabolism, allgenes)
+Fr<-intersect(Fructose_mannose, allgenes)
+Ga<-intersect(Galactose, allgenes)
+Glut<-intersect(Glutathione, allgenes)
+Glycerolip<-intersect(Glycerolipid, allgenes)
+GlyPho<-intersect(Glycerophospholipid, allgenes)
+GlySer<-intersect(Glycine_serine_and_threonine_metabolism, allgenes)
+Glycolysis<-intersect(Glycolysis_gluconeogenesis, allgenes)
+His<-intersect(Histidine,allgenes)
+LysineDeg<-intersect(LysineDeg, allgene<-JK[587:630,1]
+Nit<-intersect(NitrogenMetabolism, allgenes)
+OCPF<-intersect(OneCarbonPoolFolatee,allgenes)
+OP<-intersect(OxPhos, allgenes)
+PaGI<-intersect(Pentose_and_glucuronate_interconversions, allgenes)
+
+#need to run intersects for the rest of these
+Pentose_phosphate<-JK[831:857,1]
+Phenylalanine <-JK[858:875,1]
+Propanoate<-JK[876:908,1]
+Purine<-JK[909:1067,1]
+Pyrimidine<-JK[1068:1165,1]
+Pyruvate<-JK[1166:1205,1]
+Steroid<-JK[1206:1225,1]
+Steroid_hormone_biosynth<-JK[1226:1277,1]
+Valine_leucine_and_isoleucine_biosynthesis<-JK[1278:1332,1]
+TCEH<-intersect(TCA, allgenes)
+Arachidonic<-JK[1364:1421,1]
+Ascorbate_and_aldarate <-JK[1422:1446,1]
+BiosynthesisUnsatFattyAcid <-JK[1447:1468,1]
+Butanoate <-JK[1469:1502,1]
+EtherLipid <-JK[1503:1535,1]
+alpha_Linolenic_acid_metabolism <-JK[1536:1554,1]
+SLC1 <-JK[1555:1605,1]
+SLC2 <-JK[1605:1655,1]
+SLC3 <-JK[1655:1705,1]
+SLC4 <-JK[1705:1755,1]
+SLC5<-JK[1755:1805,1]
+SLC6 <-JK[1805:1855,1]
+SLC7 <-JK[1855:1908,1]
+Transporter <-JK[1909:1911,1]
+
+#Make combined output
+biochem<-MetaFeature(
+  object = KA,
+  features = OP,
+meta.name = 'Oxidative.Phosphorylation')
+DotPlot(biochem, features = 'Oxidative.Phosphorylation')
+###
+Try combined output
+
+biochem<-MetaFeature(
+  object = biochem,
+  features = Glyc,
+meta.name = 'Glycolysis.Gluconeogenesis')
+
+biochem<-MetaFeature(
+  object = biochem,
+  features = Fat,
+meta.name = 'Fatty.Acid.Metabolism')
+DotPlot(biochem, features = 'Fatty.Acid.Metabolism')
+
+
+biochem<-MetaFeature(
+  object = biochem,
+  features = TCEH,
+meta.name = 'TCA.Cycle')
+
+
+
+bigplot<-DotPlot(biochem, features = c('Oxidative.Phosphorylation', 'Glycolysis.Gluconeogenesis','Fatty.Acid.Metabolism','TCA.Cycle'))
+
+
+
+bigplot + theme(legend.text = element_text(family = 'Helvetica', size = 8)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 8)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKA_SCT_metafeatures.tiff", width=19, height=12, units="cm")
+
+
+
+
+#Repeat for loadganoids
+OP2<-intersect(OxPhos, allgenes2)
+Fat2<-intersect(Fatty_acid_metabolism, allgenes2)
+Glyc2<-intersect(Glycolysis_gluconeogenesis, allgenes2)
+TCEH2<-intersect(TCA, allgenes2)
+
+#Make combined output
+biochem2<-MetaFeature(
+  object = loadganoids,
+  features = OP2,
+meta.name = 'Oxidative.Phosphorylation')
+DotPlot(biochem, features = 'Oxidative.Phosphorylation')
+###
+
+Try combined output
+
+biochem2<-MetaFeature(
+  object = biochem2,
+  features = Glyc2,
+meta.name = 'Glycolysis.Gluconeogenesis')
+
+biochem2<-MetaFeature(
+  object = biochem2,
+  features = Fat2,
+meta.name = 'Fatty.Acid.Metabolism')
+DotPlot(biochem, features = 'Fatty.Acid.Metabolism')
+
+
+biochem2<-MetaFeature(
+  object = biochem2,
+  features = TCEH2,
+meta.name = 'TCA.Cycle')
+
+
+
+bigplot2<-DotPlot(biochem2, features = c('Oxidative.Phosphorylation', 'Glycolysis.Gluconeogenesis','Fatty.Acid.Metabolism','TCA.Cycle'))
+
+
+
+bigplot2 + theme(legend.text = element_text(family = 'Helvetica', size = 8)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 8)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotload_SCT_metafeatures.tiff", width=19, height=12, units="cm")
+
+
+###
+Ox2<-intersect(OxPhos, allgenes2)
+
+oxy2<-MetaFeature(
+  object = loadganoids,
+  features = Ox2,
+meta.name = 'Oxidative_Phosphorylation')
+
+
+DotPlot(oxy2, features = 'Oxidative.Phosphorylation')
+
+###
+Glyc<-intersect(Glycolysis_gluconeogenesis, allgenes)
+
+
+Gly<-MetaFeature(
+  object = KA,
+  features = Glyc,
+meta.name = 'Glycolysis_Gluconeogenesis')
+
+
+DotPlot(Gly, features = 'Glycolysis_Gluconeogenesis')
+
+Glyc2<-intersect(Glycolysis_gluconeogenesis, allgenes2)
+
+
+Gly2<-MetaFeature(
+  object = loadganoids,
+  features = Glyc2,
+meta.name = 'Glycolysis.Gluconeogenesis')
+
+
+DotPlot(Gly2, features = 'Glycolysis.Gluconeogenesis')
+
+Pentose_phosphate2<-intersect(Pentose_phosphate, allgenes)
+
+Gly<-MetaFeature(
+  object = KA,
+  features = Glyc,
+meta.name = 'Glycolysis_Gluconeogenesis')
+
+
+DotPlot(Gly, features = 'Glycolysis_Gluconeogenesis')
+
+Pentose_phosphate2<-intersect(Pentose_phosphate, allgenes)
+
+PP<-MetaFeature(
+  object = KA,
+  features = Pentose_phosphate2,
+meta.name = 'Pentose.Phosphate')
+
+
+DotPlot(PP, features = 'Pentose.Phosphate')
+
+Pentose_phosphate2<-intersect(Pentose_phosphate, allgenes2)
+
+PP2<-MetaFeature(
+  object = loadganoids,
+  features = Pentose_phosphate2,
+meta.name = 'Pentose.Phosphate')
+
+
+DotPlot(PP2, features = 'Pentose.Phosphate')
+
+
+
+FA<-intersect(Fatty_acid_metabolism, allgenes)
+
+
+FAm<-MetaFeature(
+  object = KA,
+  features = FA,
+meta.name = 'Fatty.Acid.Metabolism')
+
+
+DotPlot(FAm, features = 'Fatty.Acid.Metabolism')
+
+ggsave("dotplotKA_SCT_FAMS.pdf", width=9, height=6, units="cm")
+
+FA2<-intersect(Fatty_acid_metabolism, allgenes2)
+
+
+FAm2<-MetaFeature(
+  object = loadganoids,
+  features = FA2,
+meta.name = 'Fatty.Acid.Metabolism')
+
+
+DotPlot(FAm2, features = 'Fatty.Acid.Metabolism')
+ggsave("dotplotload_SCT_FAMS.pdf", width=9, height=6, units="cm")
+```
+
+
+
+```{try over time}
+
+
+biochem<-MetaFeature(
+  object = KA,
+  features = OP,
+meta.name = 'Oxidative.Phosphorylation')
+DotPlot(biochem, features = 'Oxidative.Phosphorylation')
+
+Idents(KA_PC)<-"age"
+#look att by time
+
+
+OP<-intersect(OxPhos, allgenes)
+Fat<-intersect(Fatty_acid_metabolism, allgenes)
+Glyc<-intersect(Glycolysis_gluconeogenesis, allgenes)
+TCEH<-intersect(TCA, allgenes)
+
+OP<-intersect(OxPhos, allgenesSCT)
+OP2<-intersect(OxPhos, allgenesRNA)
+
+
+
+biochem<-MetaFeature(
+  object = KA_PC,
+  features = OP,
+meta.name = 'Oxidative.Phosphorylation')
+DotPlot(biochem, features = 'Oxidative.Phosphorylation')
+
+
+ggsave("dotplotKAPC_RNA_Meta_OxPhos_P.pdf", width=18, height=12, units="cm")
+
+biochem<-MetaFeature(
+  object = biochem,
+  features = Fat,
+meta.name = 'Fatty.Acid.Metabolism')
+DotPlot(biochem, features = 'Fatty.Acid.Metabolism')
+
+ggsave("dotplotKAPC_RNA_Meta_FattyAcid_P.pdf", width=18, height=12, units="cm")
+
+biochem<-MetaFeature(
+  object = biochem,
+  features = Glyc,
+meta.name = 'Glycolysis.Gluconeogenesis')
+DotPlot(biochem, features = 'Glycolysis.Gluconeogenesis')
+
+ggsave("dotplotKAPC_RNA_Meta_GlycolysisGluconeogenesis_P.pdf", width=18, height=12, units="cm")
+
+biochem<-MetaFeature(
+  object = biochem,
+  features = TCEH,
+meta.name = 'TCA.Cycle')
+DotPlot(biochem, features = 'TCA.Cycle')
+
+ggsave("dotplotKAPC_RNA_Meta_TCA_Cycle_P.pdf", width=18, height=12, units="cm")
+
+bigplot<-DotPlot(biochem, features = c('Oxidative.Phosphorylation', 'Glycolysis.Gluconeogenesis','Fatty.Acid.Metabolism','TCA.Cycle'))
+
+bigplot + theme(legend.text = element_text(family = 'Helvetica', size = 8)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 8)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+  
+ggsave("dotplotKAPCTime_RNA_Meta_Pathways_P.pdf", width=18, height=12, units="cm")
+```
+
+
+```{r james list}
+
+james<-read.csv(file="/Users/samnayler/Desktop/Metabolism/20210928James_Bias_Analysis.csv")
+jamesie<-as.character(james$Gene.Symbol)
+jamesie2<-intersect(jamesie, allgenes)
+a<-DotPlot(KA, features = jamesie2)
+a + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 4)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+b<-DotPlot(KA_PC, features = jamesie2)
+b + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 4)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+Idents(KA_BG)<-"age"
+c<-DotPlot(KA_BG, features = jamesie2)
+c + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 4)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("dotplotKAPCTime_RNA_Meta_Pathways_P.pdf", width=29, height=18, units="cm")
+
+
+```
+
+
+```{r ave exrp}
+
+
+Idents(cerebellar.integrated)<-"old.ident"
+
+head(cerebellar.integrated[["RNA"]][, 1:5])
+
+
+orig.levels <- levels(cerebellar.integrated)
+levels(loadganoids) <- orig.levels
+ave_CerInt<-AverageExpression(cerebellar.integrated, return.seurat = TRUE)
+
+CellScatter(cerebellar.integrated, cell1 = "01-PC", cell2 = "02-RL")
+
+cluster.averages <- AverageExpression(cerebellar.integrated, return.seurat = TRUE, add.ident = "old.ident")
+CellScatter(cluster.averages, cell1 = "01-PC", cell2 = "02-RL")
+saveRDS(cluster.averages, file = "Desktop/Metabolism/20210929_integratedClusters.rds")
+cluster.averages <-readRDS(file = "Desktop/Metabolism/20210929_integratedClusters.rds"))
+
+DoHeatmap(cluster.averages, features = unlist(TopFeatures(cerebellar.integrated[["pca"]], balanced = TRUE)), size = 3, draw.lines = FALSE)
+
+genes<-biggenes[1:20]
+
+DefaultAssay(cerebellar.integrated)<-"RNA"
+DefaultAssay(cluster.averages)<-"integrated"
+
+hm<-DoHeatmap(cluster.averages, features = as.character(genes), size = 1, draw.lines = FALSE) + theme(text = element_text(size = 3))
+
+tiff(filename = "20210202_HeatmapKA.tiff", width = 1632, height = 834, units = "px", pointsize = 12)
+
+dev.off()
+
+```
+
+
+
+```{r pseudotime}
+
+KA_PC<-subset(KA, idents = "01-PC", invert = FALSE)
+DefaultAssay(KA_PC)<-"RNA"
+Idents(KA_PC)<-"age"
+
+seurat.sce <- as.SingleCellExperiment(KA_PC, assay = "RNA")
+#DimPlot(nsc.integrated)
+#can perform pseudotime on UMAP or PCA or TSNE overlay
+seurat.sce.sling <- slingshot(seurat.sce, reducedDim = 'UMAP')
+
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(seurat.sce.sling$slingPseudotime_1, breaks=100)]
+plot(reducedDims(seurat.sce.sling)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(seurat.sce.sling), lwd=2, col='black')
+
+
+plotGenePseudotime(seurat.sce.sling, gene = "CALB1")
+
+
+#Here I want to collect the pseudotime values and read them back onto the seurat objeect KA_PC
+
+pseudotimevalues <- slingPseudotime(seurat.sce.sling)
+KA_PC@meta.data$pseudotimevalues<-pseudotimevalues
+a<-FeaturePlot(KA_PC, features = "pseudotimevalues")
+
+FeaturePlot(KA_PC, features = "pseudotimevalues")
+a<-DimPlot(KA_PC)
+
+Idents(KA_PC)<-"age"
+b<-FeaturePlot(KA_PC, features = "pseudotimevalues", cols = colors)
+saveRDS(KA_PC, file = "~/Desktop/Metabolism/KA_PC.rds")
+
+
+#What genes might be interesting to visualizee for PC maturation?
+FeaturePlot(KA_PC, features = "SUCLG2P2")
+ FeaturePlot(KA_PC, features = "MPC2")
+FeaturePlot(KA_PC, features = "RPEL1")
+FeaturePlot(KA_PC, features = "GPX7")
+FeaturePlot(KA_PC, features = "ALDOA")
+FeaturePlot(KA_PC, features = "ALDOB")
+FeaturePlot(KA_PC, features = "ALDOC")
+FeaturePlot(KA_PC, features = "PYGM")
+#Need to deveelop method for looking at pseudotimee output
+
+#Try integrating metafeatures on pseudotime
+
+JamesBias2<-read.csv(file="~/Desktop/Metabolism/Metafeature/20210929_James_Bias_Analysis2.csv")
+
+Glu<-JamesBias2$Gene.Symbol[1:13]
+Glu2<-intersect(Glu, allgenes_RNA)
+
+Glu_Trans<-JamesBias2$Gene.Symbol[14:31]
+Glu_Trans22<-intersect(Glu_Trans, allgenes_RNA)
+
+Glycogen<-JamesBias2$Gene.Symbol[32:41]
+Glycogen2<-intersect(Glycogen, allgenes_RNA)
+
+Glycolysis_Gluconeogenesis<-JamesBias2$Gene.Symbol[42:85]
+GlycGluc<-intersect(Glycolysis_Gluconeogenesis, allgenes_RNA)
+
+GSH<-JamesBias2$Gene.Symbol[86:105]
+GSH2<-intersect(GSH, allgenes_RNA)
+
+PPP<-JamesBias2$Gene.Symbol[106:123]
+PPP2<-intersect(PPP, allgenes_RNA)
+
+PyrLac<-JamesBias2$Gene.Symbol[124:131]
+PyrLac2<-intersect(PyrLac2, allgenes_RNA)
+
+TCA<-JamesBias2$Gene.Symbol[132:165]
+TCA2<-intersect(TCA, allgenes_RNA)
+
+allgenes_RNA<-rownames(PC_KA)
+KA_PC_glu<-MetaFeature(
+  object = KA_PC,
+  features = Glu2,
+meta.name = 'Glu')
+
+DotPlot(KA_PC_glu, features = 'Glu')
+c<-FeaturePlot(KA_PC_glu, features ='Glu')
+
+allgenes_RNA<-rownames(PC_KA)
+KA_PC_glu<-MetaFeature(
+  object = KA_PC_glu,
+  features = Glu_Trans,
+meta.name = 'Glu_Trans')
+
+DotPlot(KA_PC_glu, features = 'Glu_Trans')
+c<-FeaturePlot(KA_PC_glu, features ='Glu_Trans')
+
+allgenes_RNA<-rownames(PC_KA)
+KA_PC_glu<-MetaFeature(
+  object = KA_PC_glu,
+  features = Glycogen2,
+meta.name = 'Glycogen2')
+
+DotPlot(KA_PC_glu, features = 'Glycogen2')
+d<-FeaturePlot(KA_PC_glu, features ='Glycogen2')
+
+KA_PC_glu<-MetaFeature(
+  object = KA_PC_glu,
+  features = GlycGluc2,
+meta.name = 'GlycGluc2')
+
+DotPlot(KA_PC_glu, features = 'GlycGluc2')
+e<-FeaturePlot(KA_PC_glu, features ='GlycGluc2')
+
+KA_PC_glu<-MetaFeature(
+  object = KA_PC_glu,
+  features = GSH2,
+meta.name = 'GSH2')
+
+DotPlot(KA_PC_glu, features = 'GSH2')
+F<-FeaturePlot(KA_PC_glu, features ='GSH2')
+
+
+KA_PC_glu<-MetaFeature(
+  object = KA_PC_glu,
+  features = PPP2,
+meta.name = 'PPP2')
+
+DotPlot(KA_PC_glu, features = 'PPP2')
+G<-FeaturePlot(KA_PC_glu, features ='PPP2')
+
+
+KA_PC_glu<-MetaFeature(
+  object = KA_PC_glu,
+  features = PyrLac2,
+meta.name = 'PyrLac2')
+
+DotPlot(KA_PC_glu, features = 'PyrLac2')
+h<-FeaturePlot(KA_PC_glu, features ='PyrLac2')
+
+KA_PC_glu<-MetaFeature(
+  object = KA_PC_glu,
+  features = TCA2,
+meta.name = 'TCA2')
+
+DotPlot(KA_PC_glu, features = 'TCA2')
+i<-FeaturePlot(KA_PC_glu, features ='TCA2')
+
+
+```
+
+
+```{r avee expression PC over time}
+DefaultAssay(KA_PC)<-"RNA"
+Idents(KA_PC)<-"age"
+head(KA_PC[["RNA"]][, 1:5])
+
+
+orig.levels <- levels(KA_PC)
+levels(KA_PC) <- orig.levels
+ave_KA_PC<-AverageExpression(KA_PC, return.seurat = TRUE)
+
+CellScatter(KA_PC, cell1 = "9 PCW", cell2 = "20 PCW")
+
+cluster.averages <- AverageExpression(KA_PC, return.seurat = TRUE, add.ident = "age")
+CellScatter(cluster.averages, cell1 = "9 PCW", cell2 = "20 PCW")
+saveRDS(cluster.averages, file = "Desktop/Metabolism/20210929_KA_PCave.rds")
+#cluster.averages_KA_PC <-readRDS(file = "Desktop/Metabolism/20210929_integratedClusters.rds"))
+
+DoHeatmap(cluster.averages, features = unlist(TopFeatures(KA_PC[["pca"]], balanced = TRUE)), size = 3, draw.lines = FALSE)
+
+
+#What if I try and mix james lists with ave expression?
+JamesBias2<-read.csv(file="~/Desktop/Metabolism/Metafeature/20210929_James_Bias_Analysis2.csv")
+
+Glu<-JamesBias2$Gene.Symbol[1:13]
+Glu2<-intersect(Glu, allgenes_RNA)
+
+Glu_Trans<-JamesBias2$Gene.Symbol[14:31]
+Glu_Trans22<-intersect(Glu_Trans, allgenes_RNA)
+
+Glycogen<-JamesBias2$Gene.Symbol[32:41]
+Glycogen2<-intersect(Glycogen, allgenes_RNA)
+
+Glycolysis_Gluconeogenesis<-JamesBias2$Gene.Symbol[42:85]
+GlycGluc2<-intersect(Glycolysis_Gluconeogenesis, allgenes_RNA)
+
+GSH<-JamesBias2$Gene.Symbol[86:105]
+GSH2<-intersect(GSH, allgenes_RNA)
+
+PPP<-JamesBias2$Gene.Symbol[106:123]
+PPP2<-intersect(PPP, allgenes_RNA)
+
+PyrLac<-JamesBias2$Gene.Symbol[124:131]
+PyrLac2<-intersect(PyrLac, allgenes_RNA)
+
+TCA<-JamesBias2$Gene.Symbol[132:165]
+TCA2<-intersect(TCA, allgenes_RNA)
+
+aa<-DoHeatmap(cluster.averages, features = Glu2, size = 3, draw.lines = FALSE)
+ggsave("heatmap_KAPC_time_RNA_Glu.tiff", width=27, height=18, units="cm")
+
+ab<-DoHeatmap(cluster.averages, features = Glu_Trans22, size = 3, draw.lines = FALSE)
+ggsave("heatmap_KAPC_time_RNA_GluTransport.tiff", width=27, height=18, units="cm")
+
+ac<-DoHeatmap(cluster.averages, features = Glycogen2, size = 3, draw.lines = FALSE)
+ggsave("heatmap_KAPC_time_RNA_Glycogen.tiff", width=27, height=18, units="cm")
+
+ad<-DoHeatmap(cluster.averages, features = GlycGluc2, size = 3, draw.lines = FALSE)
+ggsave("heatmap_KAPC_time_RNA_GlycolysisGluconeo.tiff", width=27, height=18, units="cm")
+
+ae<-DoHeatmap(cluster.averages, features = GSH2, size = 3, draw.lines = FALSE)
+ggsave("heatmap_KAPC_time_RNA_GSH.tiff", width=27, height=18, units="cm")
+
+af<-DoHeatmap(cluster.averages, features = PPP2, size = 3, draw.lines = FALSE)
+ggsave("heatmap_KAPC_time_RNA_PPP.tiff", width=27, height=18, units="cm")
+
+ag<-DoHeatmap(cluster.averages, features = PyrLac2, size = 3, draw.lines = FALSE)
+ggsave("heatmap_KAPC_time_RNA_PyrLac.tiff", width=27, height=18, units="cm")
+
+ae<-DoHeatmap(cluster.averages, features = TCA2, size = 3, draw.lines = FALSE)
+ggsave("heatmap_KAPC_time_RNA_TCA.tiff", width=27, height=18, units="cm")
+
+DefaultAssay(cluster.averages)<-"SCT"
+#Lets try and look at SCT slot
+aab<-DoHeatmap(cluster.averages, features = Glu2, size = 3, draw.lines = FALSE)
+ggsave("heatmap_KAPC_time_RNA_Glu.tiff", width=27, height=18, units="cm")
+
+ab<-DoHeatmap(cluster.averages, features = Glu_Trans22, size = 3, draw.lines = FALSE)
+ggsave("heatmap_KAPC_time_RNA_GluTransport.tiff", width=27, height=18, units="cm")
+
+ac<-DoHeatmap(cluster.averages, features = Glycogen2, size = 3, draw.lines = FALSE)
+ggsave("heatmap_KAPC_time_RNA_Glycogen.tiff", width=27, height=18, units="cm")
+
+ad<-DoHeatmap(cluster.averages, features = GlycGluc2, size = 3, draw.lines = FALSE)
+ggsave("heatmap_KAPC_time_RNA_GlycolysisGluconeo.tiff", width=27, height=18, units="cm")
+
+ae<-DoHeatmap(cluster.averages, features = GSH2, size = 3, draw.lines = FALSE)
+ggsave("heatmap_KAPC_time_RNA_GSH.tiff", width=27, height=18, units="cm")
+
+af<-DoHeatmap(cluster.averages, features = PPP2, size = 3, draw.lines = FALSE)
+ggsave("heatmap_KAPC_time_RNA_PPP.tiff", width=27, height=18, units="cm")
+
+ag<-DoHeatmap(cluster.averages, features = PyrLac2, size = 3, draw.lines = FALSE)
+ggsave("heatmap_KAPC_time_RNA_PyrLac.tiff", width=27, height=18, units="cm")
+
+ae<-DoHeatmap(cluster.averages, features = TCA2, size = 3, draw.lines = FALSE)
+ggsave("heatmap_KAPC_time_RNA_TCA.tiff", width=27, height=18, units="cm")
+
+
+```
+
+
+```{r frontiers reviewer and master interesting gene list}
+
+front<-c("SLC2A5","SLC16A1", "GLUD1", "SLC2A1", "SLC2A3", "PC", "SLC25A12", "SAT1", "SAT2", "SLC38A3", "SLC12A2", "SLC1A2", "SLC1A3")
+#SLC2A5 IS INVOLVED WITH glucose transport in microglia
+#SLC16A1 is involved with Ketones and lactic acid transport in Endothelia
+#SLC1A2 is the Na+ dependnt glutamater transported which astrocytes use for clearing glutamatee released at the synaptic clef, which is involved with postsynaptic activation. Astrocytes convert cleared glu
+#SLC2A3 SLC2A1 high inendos
+#Pyruvate carboxylase PC forms oxaloacetate 
+#SLC25A12 is AGC1, mainly involved with transfer to GABAergic neurons
+#SLC38A3 iis SN1, which facilitates glutmaine release
+#Extracellular glutamine is taken up by SAT1, SAT2
+#SLC12A2 is NKCC1
+#SLC1A3 is GLAST/EEAT1, virtuall all released transmitter glutamatet isi accumulated specfically into astrocytes by GLAST and GLT1 (SLC1A2_). Bergmann glia have a role
+#PLA2G1B PLA2 
+frontplot<-DotPlot(KA, features = front)
+frontplot2<-DotPlot(loadganoids, features = front)
+
+frontplot + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 4)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+theme(axis.text.y = element_text(hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+ggsave("dotplot_KA_SCT_frontiersgenes.tiff", width=18, height=12, units="cm")
+
+
+frontplot2 + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 4)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+ggsave("DotPlot_load_SCT_frontiergenes.tiff", width=19, height=12, units="cm")
+
+```
+
+
+```{r join ids}
+#Want to join IDs from KA age and figure_clusters
+
+
+KA$celltype_time<-paste(KA$figure_clusters,"_",KA$age,sep="")
+Idents(KA)<-"celltype_time"
+
+#Now test by plotting one genee
+calbtime<-DotPlot(KA, features = "CALB1")
+
+calbtime + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 4)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+theme(axis.text.y = element_text(hjust = 1, vjust = 0.5, size = 0.5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+  
+ggsave("dotplot_KA_SCT_celltypetime_CALB1.tiff", width=27, height=18, units="cm")
+
+DoHeatmap(KA, features = "CALB1")
+#
+#Lets try and plot metafeatures with time and cell type
+
+
+
+
+
+JamesBias2<-read.csv(file="~/Desktop/Metabolism/Metafeature/20210929_James_Bias_Analysis2.csv")
+
+Glu<-JamesBias2$Gene.Symbol[1:13]
+Glu2<-intersect(Glu, allgenes_RNA)
+
+Glu_Trans<-JamesBias2$Gene.Symbol[14:31]
+Glu_Trans22<-intersect(Glu_Trans, allgenes_RNA)
+
+Glycogen<-JamesBias2$Gene.Symbol[32:41]
+Glycogen2<-intersect(Glycogen, allgenes_RNA)
+
+Glycolysis_Gluconeogenesis<-JamesBias2$Gene.Symbol[42:85]
+GlycGluc2<-intersect(Glycolysis_Gluconeogenesis, allgenes_RNA)
+
+GSH<-JamesBias2$Gene.Symbol[86:105]
+GSH2<-intersect(GSH, allgenes_RNA)
+
+PPP<-JamesBias2$Gene.Symbol[106:123]
+PPP2<-intersect(PPP, allgenes_RNA)
+
+PyrLac<-JamesBias2$Gene.Symbol[124:131]
+PyrLac2<-intersect(PyrLac, allgenes_RNA)
+
+TCA<-JamesBias2$Gene.Symbol[132:165]
+TCA2<-intersect(TCA, allgenes_RNA)
+
+
+KA_1<-MetaFeature(
+  object = KA,
+  features = PPP2,
+meta.name = 'PPP2')
+
+DotPlot(KA_1, features = 'PPP2')
+G<-DotPlot(KA_1, features = 'PPP2')
+G  + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 4)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+theme(axis.text.y = element_text(hjust = 1, vjust = 0.5, size = 0.5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+  
+  
+G2<-DoHeatmap(KA_1, features = 'PPP2')
+H2<-VlnPlot(KA_1, features = 'PPP2') + NoLegend()
+H2 + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 4)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+theme(axis.text.y = element_text(hjust = 1, vjust = 0.5, size = 0.5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+
+#To heatmap should examine scale.data in SCTransformed object
+KA2<-SCTransform(KA, return.only.var.genes = FALSE)
+DotPlot(KA_1, features = 'PPP2')
+G<-DotPlot(KA_1, features = 'PPP2')
+G  + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 4)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+theme(axis.text.y = element_text(hjust = 1, vjust = 0.5, size = 0.5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+  
+  
+G2<-DoHeatmap(KA_1, features = 'PPP2')
+H2<-VlnPlot(KA_1, features = 'PPP2') + NoLegend()
+H2 + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 4)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+theme(axis.text.y = element_text(hjust = 1, vjust = 0.5, size = 0.5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+```
+
+---
+
+
+library(Seurat)
+library(cowplot)
+library(ggplot2)
+library(slingshot)
+library(RColorBrewer)
+
+
+carter_sct<-readRDS(file ="~/Desktop/Code/20191126vs2_v3update__carter_sct2.rds")
+KA<-readRDS(file = "/Users/samnayler/Desktop/Example_data/Aldinger/cbl_integrated_cleanCC_200518.rds")
+#Human cerebellar atlas 9-22pcw; https://pubmed.ncbi.nlm.nih.gov/34140698/
+loadganoids<-readRDS (file = "~/Desktop/20200918vs2_v3update_newganoidscombinednames.rds")
+
+
+
+
+
+
+
+
+hatten_carter<-DotPlot(carter_sct, features = c("Zeb1", "Hif1a", "Bnip3", "Hk2", "Vegfa", "Egln1", "Egln3", "Chl1", "Pard3", "Pard6a","Itgb1", "Mki67"))
+hatten_carter + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplot_SCT_Carter_hattengenes.tiff", width=13.5, height=9, units="cm")
+
+Carter_GC<-subset(carter_sct, idents = "Granule", invert = FALSE)
+Idents(Carter_GC)<-"sample_date"
+hatten_carter_GC<-DotPlot(Carter_GC, features = c("Zeb1", "Hif1a", "Bnip3", "Hk2", "Vegfa", "Egln1", "Egln3", "Chl1", "Pard3", "Pard6a","Itgb1", "Mki67"))
+hatten_carter_GC + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+KA$celltype_time<-paste(KA$figure_clusters,"_",KA$age,sep="")
+Idents(KA)<-"celltype_time"
+
+
+carter_sct$celltype_sample_date<-paste(carter_sct$cell_type,"_",carter_sct$sample_date, sep="")
+Idents(carter_sct)<-"celltype_sample_date"
+hatten_carter_time<-DotPlot(carter_sct, features = c("Zeb1", "Hif1a", "Bnip3", "Hk2", "Vegfa", "Egln1", "Egln3", "Chl1", "Pard3", "Pard6a","Itgb1", "Mki67"))
+
+hatten_carter_time + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+DefaultAssay(carter_sct)<-"RNA"
+DoHeatmap(carter_sct, features = c("Zeb1", "Hif1a", "Bnip3", "Hk2", "Vegfa", "Egln1", "Egln3", "Chl1", "Pard3", "Pard6a","Itgb1")) + NoLegend()
+
+
+seurat.sce2 <- as.SingleCellExperiment(Carter_GC, assay = "RNA")
+seurat.sce.sling2 <- slingshot(seurat.sce2, reducedDim = 'UMAP')
+
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(seurat.sce.sling2$slingPseudotime_1, breaks=100)]
+plot(reducedDims(seurat.sce.sling2)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(seurat.sce.sling2), lwd=2, col='black')
+
+
+plotGenePseudotime(seurat.sce.sling2, gene = "Zeb1")
+
+
+#Here I want to collect the pseudotime values and read them back onto the seurat objeect KA_PC
+
+pseudotimevalues2 <- slingPseudotime(seurat.sce.sling2)
+Carter_GC@meta.data$pseudotimevalues2<-pseudotimevalues2
+a<-FeaturePlot(Carter_GC, features = "pseudotimevalues2")
+
+FeaturePlot(Carter_GC, features = "pseudotimevalues2")
+
+Idents(KA_GC)<-"age"
+b<-FeaturePlot(Carter_GC, features = "pseudotimevalues2", cols = colors)
+DimPlot(Carter_GC)
+saveRDS(Carter_GC, file = "~/Desktop/Metabolism/Carter_GC.rds")
+
+
+
+
+
+#Now hatten
+
+hatten<-DotPlot(KA, features = c("ZEB1", "HIF1A", "BNIP3", "HK2", "VEGFA", "EGLN1", "EGLN3", "CHL1", "PARD3", "PARD6A","ITGB1", "MKI67"))
+hatten + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCT_Hatten_genes.tiff", width=13.5, height=9, units="cm")
+
+
+
+KA_GC<-subset(KA, idents = "03-GCP", invert = FALSE)
+Idents(KA_GC)<-"age"
+KA_GC_time<-DotPlot(KA_GC, features = c("ZEB1", "HIF1A", "BNIP3", "HK2", "VEGFA", "EGLN1", "EGLN3", "CHL1", "PARD3", "PARD6A", "ITGB1", "MKI67"))
+
+KA_GC_time + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+  
+  
+seurat.sce <- as.SingleCellExperiment(KA_GC, assay = "RNA")
+seurat.sce.sling <- slingshot(seurat.sce, reducedDim = 'UMAP')
+
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(seurat.sce.sling$slingPseudotime_1, breaks=100)]
+plot(reducedDims(seurat.sce.sling)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(seurat.sce.sling), lwd=2, col='black')
+
+
+plotGenePseudotime(seurat.sce.sling, gene = "HIF1A")
+
+
+#Here I want to collect the pseudotime values and read them back onto the seurat objeect KA_PC
+
+pseudotimevalues <- slingPseudotime(seurat.sce.sling)
+KA_GC@meta.data$pseudotimevalues<-pseudotimevalues
+a<-FeaturePlot(KA_GC, features = "pseudotimevalues")
+
+FeaturePlot(KA_GC, features = "pseudotimevalues")
+
+Idents(KA_GC)<-"age"
+b<-FeaturePlot(KA_GC, features = "pseudotimevalues", cols = colors)
+saveRDS(KA_PC, file = "~/Desktop/Metabolism/KA_GC.rds")
+```
+
+
+
+```{r subset collective}
+KA_RLGCPGC<-subset(KA, idents = c("02-RL", "03-GCP", "04-GN", invert = FALSE)
+DimPlot(KA_RLGCPGC)
+
+KA_RLGCPGC$celltype_time<-paste(KA_RLGCPGC$figure_clusters,"_",KA_RLGCPGC$age,sep="")
+Idents(KA_RLGCPGC)<-"age"
+DimPlot(KA_RLGCPGC)
+
+
+seurat.sce <- as.SingleCellExperiment(KA_RLGCPGC, assay = "RNA")
+seurat.sce.sling <- slingshot(seurat.sce, reducedDim = 'UMAP')
+
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(seurat.sce.sling$slingPseudotime_1, breaks=100)]
+plot(reducedDims(seurat.sce.sling)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(seurat.sce.sling), lwd=2, col='black')
+
+
+plotGenePseudotime(seurat.sce.sling, gene = "HIF1A")
+#Pull out these values?
+
+#Here I want to collect the pseudotime values and read them back onto the seurat objeect KA_PC
+
+pseudotimevalues <- slingPseudotime(seurat.sce.sling)
+KA_RLGCPGC@meta.data$pseudotimevalues<-pseudotimevalues
+FeaturePlot(KA_RLGCPGC, features = "pseudotimevalues")
+a<-DimPlot(KA_RLGCPGC, group.by = "celltype_time") + NoLegend()
+af<-DimPlot(KA_RLGCPGC, group.by = "celltype_time")
+
+ab<-DimPlot(KA_RLGCPGC, group.by = "figure_clusters")
+
+ac<-DimPlot(KA_RLGCPGC, group.by = "age")
+
+
+FeaturePlot(KA_RLGCPGC, features = "pseudotimevalues")
+
+Idents(KA_RLGCPGC)<-"age"
+b<-FeaturePlot(KA_RLGCPGC, features = "pseudotimevalues", cols = colors)
+plot_grid(ab, a, ac, b, nrow = 2)
+ggsave("KA_SCTRLGCGCP_PseudoMulti.tiff", width=27, height=18, units="cm")
+
+
+saveRDS(KA_RLGCPGC, file = "~/Desktop/Metabolism/KA_GCGCPRL.rds")
+KA_RLGCPGC<-readRDS (file = "~/Desktop/Metabolism/KA_GCGCPRL.rds")
+
+Idents(KA_RLGCPGC)<-"figure_clusters"
+hatten2<-DotPlot(KA_RLGCPGC, features = c("ZEB1", "HIF1A", "BNIP3", "HK2", "VEGFA", "EGLN1", "EGLN3", "CHL1", "PARD3", "PARD6A","ITGB1", "MKI67"))
+hatten2 + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCTRLGCGCP_Hatten_genes.tiff", width=13.5, height=9, units="cm")
+
+plotGenePseudotime(seurat.sce.sling, gene = "HIF1A")
+
+
+#metas
+allgenes<-rownames(KA_RLGCPGC)
+JK<-read.csv(file ="~/Desktop/Metabolism/Geneset lists 210819.csv")
+
+Fatty_acid_metabolism<-JK[187:228,1]
+
+Glycolysis_gluconeogenesis<-JK[496:557,1]
+
+OxPhos<-JK[671:802,1]
+
+TCA<-JK[1333:1363,1]
+
+Fa<-intersect(Fatty_acid_metabolism, allgenes)
+Gly<-intersect(Glycolysis_gluconeogenesis,allgenes)
+Ox<-intersect(OxPhos, allgenes)
+TC<-intersect(TCA, allgenes)
+
+oxy<-MetaFeature(
+  object = KA_RLGCPGC,
+  features = Ox,
+meta.name = 'Oxidative.Phosphorylation')
+
+oxy2<-MetaFeature(
+  object = oxy,
+  features = Ox,
+meta.name = 'Glycolysis')
+
+DotPlot(oxy, features = 'Oxidative.Phosphorylation')
+DotPlot(oxy, features = 'Glycolysis')
+
+
+
+DotPlot(oxy, features = 'Oxidative.Phosphorylation')
+FeaturePlot(oxy,features = 'Oxidative.Phosphorylation', split.by = "age")
+ggsave("FeaturePlot_KA_PC_RNA_MetOxPhos.tiff", width=96, height=64, units="cm")
+
+#Read out
+oxies<-oxy@meta.data$Oxidative.Phosphorylation
+pseudos<-oxy@meta.data$pseudotime
+testplot<-paste(oxies, pseudos)
+testplot2<-as.data.frame(testplot)
+test<-ggplot(testplot2,  aes(x=pseudos, y=oxies)) + geom_line()
+
+
+#lets evaluatee ethe effectiveness of defining a start cluster
+seurat.sce.sling2 <- slingshot(seurat.sce, reducedDim = 'UMAP', clusterLabels = KA_PC@active.ident, start.clus ="9 PCW", end.clus ="20 PCW")
+
+
+
+
+
+```
+
+```{r subset collective for load}
+#want to examin pseudotime for GC and hif
+load_RLGCPGC<-subset(loadganoids, idents = c("Rhombic lip", "GC precusors", "Granule cells-1","Granule cells-2") ,invert = FALSE)
+DimPlot(load_RLGCPGC)
+
+
+
+seurat.sce.loadgcrlgcp <- as.SingleCellExperiment(load_RLGCPGC, assay = "RNA")
+seurat.sce.sling <- slingshot(seurat.sce.loadgcrlgcp, reducedDim = 'UMAP', start.clus = '9', end.clus  = '8')
+
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(seurat.sce.sling$slingPseudotime_1, breaks=100)]
+plot(reducedDims(seurat.sce.sling)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(seurat.sce.sling), lwd=2, col='black')
+
+
+plotGenePseudotime(seurat.sce.sling, gene = "HIF1A")
+#Pull out these values?
+
+#Here I want to collect the pseudotime values and read them back onto the seurat objeect KA_PC
+
+pseudotimevalues <- slingPseudotime(seurat.sce.sling)
+load_RLGCPGC@meta.data$pseudotimevalues<-pseudotimevalues
+FeaturePlot(load_RLGCPGC, features = "pseudotimevalues")
+
+a<-DimPlot(load_RLGCPGC, group.by = "celltype_time") + NoLegend()
+af<-DimPlot(load_RLGCPGC, group.by = "celltype_time")
+a<-DimPlot(load_RLGCPGC, group.by = "celltype_time") + NoLegend()
+af<-DimPlot(load_RLGCPGC, group.by = "celltype_time")
+
+
+
+FeaturePlot(KA_RLGCPGC, features = "pseudotimevalues")
+
+Idents(KA_RLGCPGC)<-"age"
+b<-FeaturePlot(KA_RLGCPGC, features = "pseudotimevalues", cols = colors)
+plot_grid(ab, a, ac, b, nrow = 2)
+ggsave("KA_SCTRLGCGCP_PseudoMulti.tiff", width=27, height=18, units="cm")
+
+
+saveRDS(KA_RLGCPGC, file = "~/Desktop/Metabolism/KA_GCGCPRL.rds")
+KA_RLGCPGC<-readRDS (file = "~/Desktop/Metabolism/KA_GCGCPRL.rds")
+
+Idents(KA_RLGCPGC)<-"figure_clusters"
+hatten2<-DotPlot(KA_RLGCPGC, features = c("ZEB1", "HIF1A", "BNIP3", "HK2", "VEGFA", "EGLN1", "EGLN3", "CHL1", "PARD3", "PARD6A","ITGB1", "MKI67"))
+hatten2 + theme(legend.text = element_text(family = 'Helvetica', size = 2)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 0.5)) +
+theme(axis.text.x = element_text(angle =90, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+
+ggsave("dotplotKA_SCTRLGCGCP_Hatten_genes.tiff", width=13.5, height=9, units="cm")
+
+plotGenePseudotime(seurat.sce.sling, gene = "HIF1A")
+
+
+#I would like to see if I can examine metafeatures in the pseudotime object and  plot them usinging 
+JK<-read.csv(file ="~/Desktop/Metabolism/Geneset lists 210819.csv")
+
+Fatty_acid_metabolism<-JK[187:228,1]
+
+Glycolysis_gluconeogenesis<-JK[496:557,1]
+
+OxPhos<-JK[671:802,1]
+
+TCA<-JK[1333:1363,1]
+
+Fa<-intersect(Fatty_acid_metabolism, allgenes)
+Gly<-intersect(Glycolysis_gluconeogenesis,allgenes)
+Ox<-intersect(OxPhos, allgenes)
+TC<-intersect(TCA, allgenes)
+
+oxy<-MetaFeature(
+  object = KA_PC,
+  features = Ox,
+meta.name = 'Oxidative.Phosphorylation')
+
+
+DotPlot(oxy, features = 'Oxidative.Phosphorylation')
+FeaturePlot(oxy,features = 'Oxidative.Phosphorylation', split.by = "age")
+ggsave("FeaturePlot_KA_PC_RNA_MetOxPhos.tiff", width=96, height=64, units="cm")
+
+#Read out
+oxies<-oxy@meta.data$Oxidative.Phosphorylation
+pseudos<-oxy@meta.data$pseudotime
+testplot<-paste(oxies, pseudos)
+testplot2<-as.data.frame(testplot)
+test<-ggplot(testplot2,  aes(x=pseudos, y=oxies)) + geom_line()
+
+
+
+```
+
+
+
+```{r lets try and plot cell type meta values}
+KA_PC<-subset(KA, idents = "01-PC", invert = FALSE)
+
+Idents(KA_PC)<-"age"
+seurat.sce <- as.SingleCellExperiment(KA_PC, assay = "RNA")
+#DimPlot(nsc.integrated)
+#can perform pseudotime on UMAP or PCA or TSNE overlay
+seurat.sce.sling2 <- slingshot(seurat.sce, reducedDim = 'UMAP', clusterLabels = KA_PC@active.ident, start.clus ="9 PCW", end.clus ="20 PCW")
+seurat.sce.sling <- slingshot(seurat.sce, reducedDim = 'UMAP')
+
+# c('9 PCW', '10 PCW', '11 PCW', '12 PCW', '14 PCW', '16 PCW', '17 PCW', '18 PCW', '20 PCW')
+
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(seurat.sce.sling$slingPseudotime_1, breaks=100)]
+plot(reducedDims(seurat.sce.sling)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(seurat.sce.sling), lwd=2, col='black')
+
+
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(seurat.sce.sling2$slingPseudotime_1, breaks=100)]
+plot(reducedDims(seurat.sce.sling2)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(seurat.sce.sling2), lwd=2, col='black')
+
+plotGenePseudotime(seurat.sce.sling, gene = "CALB1")
+
+
+#Here I want to collect the pseudotime values and read them back onto the seurat objeect KA_PC
+
+pseudotimevalues <- slingPseudotime(seurat.sce.sling)
+KA_PC@meta.data$pseudotimevalues<-pseudotimevalues
+a<-FeaturePlot(KA_PC, features = "pseudotimevalues")
+b<-FeaturePlot(KA_PC, features = "pseudotimevalues", cols = colors)
+c<-DimPlot(KA_PC, group.by ="age")
+d<-DimPlot(KA_PC, split.by ="age")
+
+FeaturePlot(KA_PC, features = "pseudotimevalues")
+
+
+allgenes<-rownames(KA_PC)
+JK<-read.csv(file ="~/Desktop/Metabolism/Geneset lists 210819.csv")
+
+Fatty_acid_metabolism<-JK[187:228,1]
+
+Glycolysis_gluconeogenesis<-JK[496:557,1]
+
+OxPhos<-JK[671:802,1]
+
+TCA<-JK[1333:1363,1]
+
+Fa<-intersect(Fatty_acid_metabolism, allgenes)
+Gly<-intersect(Glycolysis_gluconeogenesis,allgenes)
+Ox<-intersect(OxPhos, allgenes)
+TC<-intersect(TCA, allgenes)
+
+oxy<-MetaFeature(
+  object = KA_PC,
+  features = Ox,
+meta.name = 'Oxidative.Phosphorylation')
+
+
+DotPlot(oxy, features = 'Oxidative.Phosphorylation')
+FeaturePlot(oxy,features = 'Oxidative.Phosphorylation', split.by = "age")
+ggsave("FeaturePlot_KA_PC_RNA_MetOxPhos.tiff", width=96, height=64, units="cm")
+
+#Read out
+oxies<-oxy@meta.data$Oxidative.Phosphorylation
+pseudos<-oxy@meta.data$pseudotime
+testplot<-paste(oxies, pseudos)
+testplot2<-as.data.frame(testplot)
+test<-ggplot(testplot2,  aes(x=pseudos, y=oxies)) + geom_line()
+
+
+```
+
+
+```{r new figs}
+
+james<-read.csv(file="/Users/samnayler/Desktop/Metabolism/20210928James_Bias_Analysis.csv")
+jamesie<-as.character(james$Gene.Symbol)
+jamesie2<-intersect(jamesie, allgenes)
+glue<-c(jamesie2[1:12], jamesie2[88:102])
+a<-DotPlot(KA, features = glue)
+a + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 4)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+  
+ggsave("FeaturePlot_KA_SCT_Glu.pdf", width=18, height=12, units="cm")
+
+pyrlactrans<-jamesie[91:98]
+b<-DotPlot(KA, features = pyrlactrans)
+b + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 4)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("FeaturePlot_KA_SCT_PyrLacTrans.pdf", width=18, height=12, units="cm")
+
+
+gly<-jamesie[14:59]
+
+c<-DotPlot(KA, features = gly)
+c + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 4)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 10)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+
+ggsave("FeaturePlot_KA_SCT_Glyc.pdf", width=27, height=18, units="cm")
+
+
+extras<-c("SLC2A1","SLC2A10","SLC2A12","SLC2A13","SLC2A2","SLC2A3","SLC2A4","SLC2A5","SLC2A6","SLC2A7","SLC2A8","SLC2A9")
+
+mega<-c(glue, pyrlactrans, gly, extras)
+
+
+d<-DotPlot(KA, features = mega)
+d + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 1)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+ggsave("FeaturePlot_KA_SCT_AllCuratedPlus.pdf", width=27, height=18, units="cm")
+  
+  
+tiny<-c("SLC2A1", "SLC2A3")  
+ submega<-c(glue, pyrlactrans, gly, tiny) 
+  
+e<-DotPlot(KA, features = submega)
+e + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 1)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+  
+ggsave("FeaturePlot_KA_SCT_AllCurated.pdf", width=27, height=18, units="cm")
+  
+  DotPlot(KA, features = c("SLC2A1", "SLC2A3"))
+  
+  
+f<-DotPlot(loadganoids, features = mega)
+f + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 1)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank()) 
+ggsave("FeaturePlot_loadganoids_SCT_AllCuratedPlus.pdf", width=27, height=18, units="cm")
+  
+    
+tiny<-c("SLC2A1", "SLC2A3")  
+ submega<-c(glue, pyrlactrans, gly, tiny) 
+  
+g<-DotPlot(loadganoids, features = submega)
+g + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 1)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+  
+ggsave("FeaturePlot_load_SCT_AllCurated.pdf", width=27, height=18, units="cm")
+  
+  DotPlot(KA, features = c("SLC2A1", "SLC2A3"))  
+  
+  
+  #19102021 manual list to match james' final fig
+  final1<-c("SLC1A1", "SLC1A2", "SLC1A3", "SLC1A6", "SLC1A7", "SLC7A11", "SLC7A13", "SLC17A6", "SLC17A7", "SLC17A8", "GAD1", "GAD2", "GAD3", "GADL1", "SLC6A1", "SLC6A11", "SLC6A12", "SLC6A13", "GPT", "GPT2", "GLUD1", "GLUD2", "GOT1", "GOT2")
+  
+final<- DotPlot(KA, features = final1)
+final+ theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 1)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+  
+ 
+ggsave("FeaturePlot_KA_SCT_Final1.pdf", width=27, height=18, units="cm")
+ 
+final2<-c("SLC2A1", "SLC2A3", "SLC2A6", "SLC2A8", "HK1", "HK2", "HK3", "GCK")
+
+final2nd<- DotPlot(KA, features = final2)
+final2nd+ theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 1)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+  
+ 
+ggsave("FeaturePlot_KA_SCT_Final2.pdf", width=27, height=18, units="cm")
+
+
+
+
+finaload<- DotPlot(loadganoids, features = final1)
+finaload+ theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 1)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+  
+ 
+ggsave("FeaturePlot_load_SCT_Final1.pdf", width=27, height=18, units="cm")
+ 
+final2<-c("SLC2A1", "SLC2A3", "SLC2A6", "SLC2A8", "HK1", "HK2", "HK3", "GCK")
+
+final2nd_load<- DotPlot(loadganoids, features = final2)
+final2nd_load+ theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 1)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+  
+ 
+ggsave("FeaturePlot_load_SCT_Final2.pdf", width=27, height=18, units="cm")
+
+
+
+#20/10 ammendments
+ final1<-c("SLC1A1", "SLC1A2", "SLC1A3", "SLC1A6", "SLC1A7", "SLC7A11", "SLC7A13", "SLC17A6", "SLC17A7", "SLC17A8", "GAD1", "GAD2", "GAD3", "GADL1", "SLC6A1", "SLC6A11", "SLC6A12", "SLC6A13", "GLS", "GLS2", "GLUL",  "GPT", "GPT2", "GLUD1", "GLUD2", "GOT1", "GOT2")
+  
+final<- DotPlot(KA, features = final1)
+final+ theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 1)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+  
+ 
+ggsave("FeaturePlot_KA_SCT_Final1.pdf", width=27, height=18, units="cm")
+ 
+final2<-c("SLC2A1", "SLC2A3", "SLC2A6", "SLC2A8", "HK1", "HK2", "HK3", "GCK", "PFKL", "PFKM", "PFKP", "PKLR", "PKM", "LDHA", "LDHB", "SLC16A1", "SLC16A3", "SLC16A7", "SLC16A8", "PFKFB1","PFKFB2", "PFKFB3", "PFKFB4", "MPC1", "MPC2", "PDHA1", "PDHA2", "PDHB")
+
+final2nd<- DotPlot(KA, features = final2)
+final2nd + theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 1)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+  
+ 
+ggsave("FeaturePlot_KA_SCT_Final2.pdf", width=27, height=18, units="cm")
+
+
+
+
+finaload<- DotPlot(loadganoids, features = final1)
+finaload+ theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 1)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+  
+ 
+ggsave("FeaturePlot_load_SCT_Final1.pdf", width=27, height=18, units="cm")
+ 
+
+final2nd_load<- DotPlot(loadganoids, features = final2)
+final2nd_load+ theme(legend.text = element_text(family = 'Helvetica', size = 4)) +
+theme(legend.title = element_text(family = 'Helvetica', size = 1)) +
+theme(axis.text.x = element_text(angle =45, hjust = 1, vjust = 0.5, size = 5)) +
+  theme(axis.title.x = element_blank()) + 
+  theme(axis.title.y = element_blank())
+  
+ 
+ggsave("FeaturePlot_load_SCT_Final2.pdf", width=27, height=18, units="cm")
+
+```
+
+
+
+```{r subset collective to look at BG PTPMT1}
+
+
+
+
+
+
+KA_BG<-subset(KA, idents = "08-BG", invert = FALSE)
+a<-DimPlot(KA_BG, group.by = "figure_clusters")
+
+
+KA_BG$celltype_time<-paste(KA_BG$figure_clusters,"_",KA_BGC$age,sep="")
+Idents(KA_BG)<-"age"
+b<-DimPlot(KA_BG)
+
+
+seurat.sce.bg <- as.SingleCellExperiment(KA_BG, assay = "RNA")
+seurat.sce.sling.bg <- slingshot(seurat.sce.bg, reducedDim = 'UMAP')
+
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(seurat.sce.sling2$slingPseudotime_1, breaks=100)]
+plot(reducedDims(seurat.sce.sling.bg)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(seurat.sce.sling.bg), lwd=2, col='black')
+
+
+plotGenePseudotime(seurat.sce.sling.bg, gene = "PTPMT1")
+#Pull out these values?
+
+#Here I want to collect the pseudotime values and read them back onto the seurat objeect KA_PC
+
+pseudotimevalues <- slingPseudotime(seurat.sce.sling.bg)
+KA_BG@meta.data$pseudotimevalues<-pseudotimevalues
+FeaturePlot(KA_BG, features = "pseudotimevalues")
+c<-DimPlot(KA_BG, group.by = "celltype_time") + NoLegend()
+
+
+d<-FeaturePlot(KA_BG, features = "pseudotimevalues", cols = colors)
+plot_grid(a, b, c, d, nrow = 2)
+ggsave("KA_BG_PseudoMulti.tiff", width=27, height=18, units="cm")
+
+#Outliers aren't great
+
+plotGenePseudotime(seurat.sce.sling, gene = "PTPMT1")
+
+
+#metas
+allgenes<-rownames(KA_RLGCPGC)
+JK<-read.csv(file ="~/Desktop/Metabolism/Geneset lists 210819.csv")
+
+Fatty_acid_metabolism<-JK[187:228,1]
+
+Glycolysis_gluconeogenesis<-JK[496:557,1]
+
+OxPhos<-JK[671:802,1]
+
+TCA<-JK[1333:1363,1]
+
+Fa<-intersect(Fatty_acid_metabolism, allgenes)
+Gly<-intersect(Glycolysis_gluconeogenesis,allgenes)
+Ox<-intersect(OxPhos, allgenes)
+TC<-intersect(TCA, allgenes)
+
+oxy<-MetaFeature(
+  object = KA_RLGCPGC,
+  features = Ox,
+meta.name = 'Oxidative.Phosphorylation')
+
+oxy2<-MetaFeature(
+  object = oxy,
+  features = Ox,
+meta.name = 'Glycolysis')
+
+DotPlot(oxy, features = 'Oxidative.Phosphorylation')
+DotPlot(oxy2, features = 'Glycolysis')
+
+
+
+DotPlot(oxy, features = 'Oxidative.Phosphorylation')
+FeaturePlot(oxy,features = 'Oxidative.Phosphorylation', split.by = "age")
+ggsave("FeaturePlot_KA_PC_RNA_MetOxPhos.tiff", width=96, height=64, units="cm")
+
+#Read out
+oxies<-oxy@meta.data$Oxidative.Phosphorylation
+pseudos<-oxy@meta.data$pseudotime
+testplot<-paste(oxies, pseudos)
+testplot2<-as.data.frame(testplot)
+test<-ggplot(testplot2,  aes(x=pseudos, y=oxies)) + geom_line()
+
+
+#lets evaluatee ethe effectiveness of defining a start cluster
+seurat.sce.sling2 <- slingshot(seurat.sce, reducedDim = 'UMAP', clusterLabels = KA_PC@active.ident, start.clus ="9 PCW", end.clus ="20 PCW")
+
+
+
+
+
+```
+
+```{r orgs}
+
+hatten2<-DotPlot(KA_RLGCPGC, features = c("ZEB1", "HIF1A", "BNIP3", "HK2", "VEGFA", "EGLN1", "EGLN3", "CHL1", "PARD3", "PARD6A","ITGB1", "MKI67"))
+DoHeatmap(loadganoids, features = hatten2)
+
+
+
+load_RLGCPGC<-subset(loadganoids, idents = c("Rhombic lip", "GC precusors", "Granule cells-1","Granule cells-2") ,invert = FALSE)
+
+seurat.sce <- as.SingleCellExperiment(load_RLGCPGC, assay = "RNA")
+seurat.sce.sling.load.RLGCPGC <- slingshot(seurat.sce, reducedDim = 'UMAP', clusterLabels = load_RLGCPGC@active.ident, start.clus ="Rhombic lip", end.clus ="Granule cells-2")
+
+
+
+
+# c('9 PCW', '10 PCW', '11 PCW', '12 PCW', '14 PCW', '16 PCW', '17 PCW', '18 PCW', '20 PCW')
+
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(seurat.sce.sling.load.RLGCPGC$slingPseudotime_1, breaks=100)]
+plot(reducedDims(seurat.sce.sling.load.RLGCPGC)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(seurat.sce.sling.load.RLGCPGC), lwd=2, col='black')
+
+
+
+plotGenePseudotime(seurat.sce.sling.load.RLGCPGC, gene = "HIF1A")
+
+
+```
